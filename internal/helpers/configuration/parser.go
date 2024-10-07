@@ -11,25 +11,22 @@ import (
 )
 
 type configurationNotParsed struct {
-	CacheInvalidationPeriodSeconds int                       `json:"cacheInvalidationPeriodSeconds" yaml:"CacheInvalidationPeriodSeconds"`
-	WebServicePort                 int                       `json:"webServicePort" yaml:"webServicePort"`
-	EtcdAddress                    string                    `json:"etcdAddress" yaml:"etcdAddress"`
-	EtcdPort                       string                    `json:"etcdPort" yaml:"etcdPort"`
-	EtcdUsername                   string                    `json:"etcdUsername" yaml:"etcdUsername"`
-	EtcdPassword                   secrets.SecretKeySelector `json:"etcdPassword" yaml:"etcdPassword"`
+	WebServicePort int                       `json:"webServicePort" yaml:"webServicePort"`
+	EtcdAddress    string                    `json:"etcdAddress" yaml:"etcdAddress"`
+	EtcdPort       string                    `json:"etcdPort" yaml:"etcdPort"`
+	EtcdUsername   string                    `json:"etcdUsername" yaml:"etcdUsername"`
+	EtcdPassword   secrets.SecretKeySelector `json:"etcdPassword" yaml:"etcdPassword"`
 }
 
 type Configuration struct {
-	CacheInvalidationPeriodSeconds int    `json:"cacheInvalidationPeriodSeconds" yaml:"CacheInvalidationPeriodSeconds"`
-	WebServicePort                 int    `json:"webServicePort" yaml:"webServicePort"`
-	EtcdAddress                    string `json:"etcdAddress" yaml:"etcdAddress"`
-	EtcdPort                       string `json:"etcdPort" yaml:"etcdPort"`
-	EtcdUsername                   string `json:"etcdUsername" yaml:"etcdUsername"`
-	EtcdPassword                   string `json:"etcdPassword" yaml:"etcdPassword"`
+	WebServicePort int    `json:"webServicePort" yaml:"webServicePort"`
+	EtcdAddress    string `json:"etcdAddress" yaml:"etcdAddress"`
+	EtcdPort       string `json:"etcdPort" yaml:"etcdPort"`
+	EtcdUsername   string `json:"etcdUsername" yaml:"etcdUsername"`
+	EtcdPassword   string `json:"etcdPassword" yaml:"etcdPassword"`
 }
 
 func (c *Configuration) Default() {
-	c.CacheInvalidationPeriodSeconds = 300
 	c.WebServicePort = 8084
 }
 
@@ -57,12 +54,11 @@ func ParseConfigFile(ctx context.Context, rc *rest.Config, filePath string) (Con
 	}
 
 	result := Configuration{
-		CacheInvalidationPeriodSeconds: parse.CacheInvalidationPeriodSeconds,
-		WebServicePort:                 parse.WebServicePort,
-		EtcdAddress:                    parse.EtcdAddress,
-		EtcdPort:                       parse.EtcdPort,
-		EtcdUsername:                   parse.EtcdUsername,
-		EtcdPassword:                   string(secret.Data[parse.EtcdPassword.Key]),
+		WebServicePort: parse.WebServicePort,
+		EtcdAddress:    parse.EtcdAddress,
+		EtcdPort:       parse.EtcdPort,
+		EtcdUsername:   parse.EtcdUsername,
+		EtcdPassword:   string(secret.Data[parse.EtcdPassword.Key]),
 	}
 
 	return result, nil
