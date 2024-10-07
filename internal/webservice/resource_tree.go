@@ -44,7 +44,7 @@ type Health struct {
 
 func createResourceTreeString(resources []Resource) (string, error) {
 	tmpl := `
-apiVersion: templates.krateo.io/v1alpha1
+apiVersion: resourcetrees.krateo.io/v1alpha1
 kind: ResourceTree
 metadata:
   name: composition-resourcetree-{{ .Release.Name }}

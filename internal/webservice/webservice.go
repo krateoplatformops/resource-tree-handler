@@ -37,33 +37,43 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		err := handleGet(w, r, compositionId, ctx)
-		zerolog.Ctx(ctx).Err(err).Msg("error while managing GET request")
-		http.Error(w, fmt.Sprintf("Error parsing GET request: %s", err), http.StatusInternalServerError)
+		err := handleGet(w, compositionId, ctx)
+		if err != nil {
+			zerolog.Ctx(ctx).Err(err).Msg("error while managing GET request")
+			http.Error(w, fmt.Sprintf("Error parsing GET request: %s", err), http.StatusNotFound)
+		}
 	case http.MethodDelete:
-		err := handleDelete(w, r, compositionId, ctx)
-		zerolog.Ctx(ctx).Err(err).Msg("error while managing DELETE request")
-		http.Error(w, fmt.Sprintf("Error parsing DELETE request: %s", err), http.StatusInternalServerError)
+		err := handleDelete(w, compositionId, ctx)
+		if err != nil {
+			zerolog.Ctx(ctx).Err(err).Msg("error while managing DELETE request")
+			http.Error(w, fmt.Sprintf("Error parsing DELETE request: %s", err), http.StatusInternalServerError)
+		}
 	case http.MethodPost:
 		err := handlePost(w, r, ctx)
-		zerolog.Ctx(ctx).Err(err).Msg("error while managing POST request")
-		http.Error(w, fmt.Sprintf("Error parsing POST request: %s", err), http.StatusInternalServerError)
+		if err != nil {
+			zerolog.Ctx(ctx).Err(err).Msg("error while managing POST request")
+			http.Error(w, fmt.Sprintf("Error parsing POST request: %s", err), http.StatusInternalServerError)
+		}
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func handleGet(w http.ResponseWriter, r *http.Request, compositionId string, ctx context.Context) error {
+func handleGet(w http.ResponseWriter, compositionId string, ctx context.Context) error {
 	zerolog.Ctx(ctx).Info().Msgf("GET request for CompositionId: %s", compositionId)
-	// Implement your GET logic here
-	fmt.Fprintf(w, "GET request for composition %s", compositionId)
+	resourceTreeString, ok := GetFromCache(compositionId)
+	if !ok {
+		return fmt.Errorf("could not find resource tree for CompositionId %s", compositionId)
+	}
+
+	fmt.Fprintf(w, "%s", resourceTreeString)
 	return nil
 }
 
-func handleDelete(w http.ResponseWriter, r *http.Request, compositionId string, ctx context.Context) error {
+func handleDelete(w http.ResponseWriter, compositionId string, ctx context.Context) error {
 	zerolog.Ctx(ctx).Info().Msgf("DELETE request for CompositionId: %s", compositionId)
-	// Implement your DELETE logic here
-	fmt.Fprintf(w, "DELETE request for composition %s", compositionId)
+	DeleteFromCache(compositionId)
+	fmt.Fprintf(w, "DELETE request for CompositionId %s", compositionId)
 	return nil
 }
 
@@ -89,6 +99,7 @@ func handlePost(w http.ResponseWriter, r *http.Request, ctx context.Context) err
 	if err != nil {
 		return fmt.Errorf("error while building resource tree: %w", err)
 	}
+	AddToCache(resourceTreeString, data.CompositionId)
 	fmt.Fprint(w, resourceTreeString)
 	return nil
 }
