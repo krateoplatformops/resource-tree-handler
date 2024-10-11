@@ -94,13 +94,13 @@ func handlePost(w http.ResponseWriter, r *http.Request, ctx context.Context) err
 		return fmt.Errorf("error parsing JSON: %w", err)
 	}
 
-	// Process the JSON data
-	resourceTreeString, err := createResourceTreeString(data.Resources)
+	resourceTreeJson, err := json.Marshal(data.Resources)
 	if err != nil {
-		return fmt.Errorf("error while building resource tree: %w", err)
+		return fmt.Errorf("error marshaling resource tree into JSON: %w", err)
 	}
-	AddToCache(resourceTreeString, data.CompositionId)
-	fmt.Fprint(w, resourceTreeString)
+
+	AddToCache(string(resourceTreeJson), data.CompositionId)
+	fmt.Fprint(w, string(resourceTreeJson))
 	return nil
 }
 

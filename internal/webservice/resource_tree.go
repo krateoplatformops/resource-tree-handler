@@ -1,38 +1,25 @@
 package webservice
 
 import (
-	"bytes"
-	"fmt"
-	"text/template"
-	"time"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type ResourceTree struct {
-	CompositionId string     `json:"compositionId"`
-	Resources     []Resource `json:"resources"`
+	CompositionId string           `json:"compositionId"`
+	Resources     ResourceTreeJson `json:"resources"`
 }
 
-type Resource struct {
-	APIVersion string      `json:"apiVersion"`
-	Resource   string      `json:"resource"`
-	Name       string      `json:"name"`
-	Namespace  string      `json:"namespace,omitempty"`
-	ParentRefs []ParentRef `json:"parentRefs,omitempty"`
-	Status     Status      `json:"status,omitempty"`
+type ResourceNode struct {
+	ResourceRef `json:",inline"`
+	//+listType=atomic
+	ParentRefs []Reference `json:"parentRefs,omitempty"`
 }
 
-type ParentRef struct {
-	APIVersion string `json:"apiVersion"`
+type Reference struct {
+	ApiVersion string `json:"apiVersion"`
 	Resource   string `json:"resource"`
 	Name       string `json:"name"`
-	Namespace  string `json:"namespace,omitempty"`
-}
-
-type Status struct {
-	CreatedAt       time.Time `json:"createdAt"`
-	ResourceVersion string    `json:"resourceVersion"`
-	UID             string    `json:"uid"`
-	Health          Health    `json:"health,omitempty"`
+	Namespace  string `json:"namespace"`
 }
 
 type Health struct {
@@ -42,90 +29,38 @@ type Health struct {
 	Message string `json:"message,omitempty"`
 }
 
-func createResourceTreeString(resources []Resource) (string, error) {
-	tmpl := `
-apiVersion: resourcetrees.krateo.io/v1alpha1
-kind: ResourceTree
-metadata:
-  name: composition-resourcetree-{{ .Release.Name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  tree:
-{{- range .Resources }}
-  - apiVersion: {{ .APIVersion }}
-    resource: {{ .Resource }}
-    name: {{ .Name }}
-    {{- if .Namespace }}
-    namespace: {{ .Namespace }}
-    {{- end }}
-    {{- if .ParentRefs }}
-    parentRefs:
-    {{- range .ParentRefs }}
-    - apiVersion: {{ .APIVersion }}
-      resource: {{ .Resource }}
-      name: {{ .Name }}
-      {{- if .Namespace }}
-      namespace: {{ .Namespace }}
-      {{- end }}
-    {{- end }}
-    {{- end }}
-{{- end }}
-status:
-{{- range .Resources }}
-- createdAt: "{{ .Status.CreatedAt.Format "2006-01-02T15:04:05Z07:00" }}"
-  {{- if .Status.Health }}
-  health:
-    {{- if .Status.Health.Status }}
-    status: "{{ .Status.Health.Status }}"
-    {{- end }}
-    {{- if .Status.Health.Type }}
-    type: {{ .Status.Health.Type }}
-    {{- end }}
-    {{- if .Status.Health.Reason }}
-    reason: {{ .Status.Health.Reason }}
-    {{- end }}
-    {{- if .Status.Health.Message }}
-    message: {{ .Status.Health.Message }}
-    {{- end }}
-  {{- end }}
-  kind: {{ .Resource }}
-  name: {{ .Name }}
-  {{- if .Namespace }}
-  namespace: {{ .Namespace }}
-  {{- end }}
-  {{- if .ParentRefs }}
-  parentRefs:
-  {{- range .ParentRefs }}
-  - apiVersion: {{ .APIVersion }}
-    resource: {{ .Resource }}
-    name: {{ .Name }}
-    {{- if .Namespace }}
-    namespace: {{ .Namespace }}
-    {{- end }}
-  {{- end }}
-  {{- end }}
-  resourceVersion: "{{ .Status.ResourceVersion }}"
-  uid: {{ .Status.UID }}
-  version: {{ .APIVersion }}
-{{- end }}
-`
+type ResourceRef struct {
+	APIVersion string `json:"apiVersion,omitempty"`
+	Resource   string `json:"resource,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
+}
 
-	t, err := template.New("resourcetree").Parse(tmpl)
-	if err != nil {
-		return "", fmt.Errorf("parsing template: %w", err)
-	}
+type ResourceRefStatus struct {
+	Version   string `json:"version,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name,omitempty"`
+}
 
-	var buf bytes.Buffer
-	err = t.Execute(&buf, map[string]interface{}{
-		"Resources": resources,
-		"Release": map[string]string{
-			"Name":      "{{ .Release.Name }}",
-			"Namespace": "{{ .Release.Namespace }}",
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("executing template: %w", err)
-	}
+type ResourceNodeStatus struct {
+	ResourceRefStatus `json:",inline"`
+	ParentRefs        []*ResourceNodeStatus `json:"parentRefs,omitempty"`
+	UID               *string               `json:"uid,omitempty"`
+	ResourceVersion   *string               `json:"resourceVersion,omitempty"`
+	Health            *Health               `json:"health,omitempty"`
+	CreatedAt         *metav1.Time          `json:"createdAt,omitempty"`
+}
 
-	return buf.String(), nil
+type ResourceTreeSpec struct {
+	Tree []ResourceNode `json:"tree,omitempty"`
+}
+
+type ResourceTreeJson struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec ResourceTreeSpec `json:"spec,omitempty"`
+	//+listType=atomic
+	Status []*ResourceNodeStatus `json:"status,omitempty"`
 }
