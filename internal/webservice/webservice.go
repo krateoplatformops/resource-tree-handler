@@ -68,14 +68,15 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGet(w http.ResponseWriter, compositionId string, ctx context.Context) error {
-	zerolog.Ctx(ctx).Info().Msgf("GET request for CompositionId: %s", compositionId)
+	zerolog.Ctx(ctx).Info().Msgf("GET handler for CompositionId: %s", compositionId)
 	resourceTreeString, ok := GetFromCache(compositionId)
 	if !ok {
 		return fmt.Errorf("could not find resource tree for CompositionId %s", compositionId)
 	}
 	w.Header().Set("Content-Type", "application/json")
-
 	fmt.Fprintf(w, "%s", resourceTreeString)
+
+	zerolog.Ctx(ctx).Debug().Msgf(resourceTreeString)
 	return nil
 }
 
