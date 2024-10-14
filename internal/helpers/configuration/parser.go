@@ -3,6 +3,9 @@ package parser
 import (
 	"os"
 	"strconv"
+	"strings"
+
+	"github.com/rs/zerolog"
 )
 
 // type configurationNotParsed struct {
@@ -14,7 +17,8 @@ import (
 // }
 
 type Configuration struct {
-	WebServicePort int `json:"webServicePort" yaml:"webServicePort"`
+	WebServicePort int           `json:"webServicePort" yaml:"webServicePort"`
+	DebugLevel     zerolog.Level `json:"debugLevel" yaml:"debugLevel"`
 	// EtcdAddress    string `json:"etcdAddress" yaml:"etcdAddress"`
 	// EtcdPort       string `json:"etcdPort" yaml:"etcdPort"`
 	// EtcdUsername   string `json:"etcdUsername" yaml:"etcdUsername"`
@@ -23,6 +27,7 @@ type Configuration struct {
 
 func (c *Configuration) Default() {
 	c.WebServicePort = 8084
+	c.DebugLevel = zerolog.InfoLevel
 }
 
 func ParseConfig() (Configuration, error) {
@@ -30,7 +35,16 @@ func ParseConfig() (Configuration, error) {
 	if err != nil {
 		return Configuration{}, err
 	}
-	return Configuration{WebServicePort: port}, nil
+
+	switch strings.ToLower(os.Getenv("DEBUG_LEVEL")) {
+	case "debug":
+		return Configuration{WebServicePort: port, DebugLevel: zerolog.DebugLevel}, nil
+	case "info":
+		return Configuration{WebServicePort: port, DebugLevel: zerolog.InfoLevel}, nil
+	case "error":
+		return Configuration{WebServicePort: port, DebugLevel: zerolog.ErrorLevel}, nil
+	}
+	return Configuration{WebServicePort: port, DebugLevel: zerolog.InfoLevel}, nil
 }
 
 // func ParseConfigFile(ctx context.Context, rc *rest.Config, filePath string) (Configuration, error) {

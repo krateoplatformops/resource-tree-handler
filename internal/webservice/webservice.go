@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"strings"
 
@@ -25,7 +26,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	ctx := logger.WithContext(r.Context())
-	zerolog.Ctx(ctx).Info().Msgf("received request on endpoint: %s\nrequest type: %s", r.URL.Path, r.Method)
+	zerolog.Ctx(ctx).Info().Msgf("received request on endpoint: %s request type: %s", r.URL.Path, r.Method)
 
 	// Extract compositionId from the URL
 	parts := strings.Split(r.URL.Path, "/")
@@ -34,6 +35,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	compositionId := parts[2]
+
+	requestRes, err := httputil.DumpRequest(r, true)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msgf("error obtaining request string")
+	} else {
+		zerolog.Ctx(ctx).Debug().Msgf("%s", requestRes)
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -65,6 +73,7 @@ func handleGet(w http.ResponseWriter, compositionId string, ctx context.Context)
 	if !ok {
 		return fmt.Errorf("could not find resource tree for CompositionId %s", compositionId)
 	}
+	w.Header().Set("Content-Type", "application/json")
 
 	fmt.Fprintf(w, "%s", resourceTreeString)
 	return nil
@@ -94,13 +103,13 @@ func handlePost(w http.ResponseWriter, r *http.Request, ctx context.Context) err
 		return fmt.Errorf("error parsing JSON: %w", err)
 	}
 
-	resourceTreeJson, err := json.Marshal(data.Resources)
+	resourceTreeJsonStatus, err := json.Marshal(data.Resources.Status)
 	if err != nil {
 		return fmt.Errorf("error marshaling resource tree into JSON: %w", err)
 	}
 
-	AddToCache(string(resourceTreeJson), data.CompositionId)
-	fmt.Fprint(w, string(resourceTreeJson))
+	AddToCache(string(resourceTreeJsonStatus), data.CompositionId)
+	fmt.Fprint(w, string(resourceTreeJsonStatus))
 	return nil
 }
 
