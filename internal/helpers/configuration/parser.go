@@ -44,7 +44,7 @@ func ParseConfig() (Configuration, error) {
 	case "error":
 		return Configuration{WebServicePort: port, DebugLevel: zerolog.ErrorLevel}, nil
 	}
-	return Configuration{WebServicePort: port, DebugLevel: zerolog.InfoLevel}, nil
+	return Configuration{WebServicePort: port, DebugLevel: zerolog.DebugLevel}, nil
 }
 
 // func ParseConfigFile(ctx context.Context, rc *rest.Config, filePath string) (Configuration, error) {
