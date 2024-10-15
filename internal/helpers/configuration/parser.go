@@ -27,7 +27,7 @@ type Configuration struct {
 
 func (c *Configuration) Default() {
 	c.WebServicePort = 8084
-	c.DebugLevel = zerolog.InfoLevel
+	c.DebugLevel = zerolog.DebugLevel
 }
 
 func ParseConfig() (Configuration, error) {
