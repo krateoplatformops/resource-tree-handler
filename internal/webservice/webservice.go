@@ -1,16 +1,14 @@
 package webservice
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
-	"os"
 	"strings"
 
-	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -24,9 +22,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	ctx := logger.WithContext(r.Context())
-	zerolog.Ctx(ctx).Info().Msgf("received request on endpoint: %s request type: %s", r.URL.Path, r.Method)
+	log.Info().Msgf("received request on endpoint: %s request type: %s", r.URL.Path, r.Method)
 
 	// Extract compositionId from the URL
 	parts := strings.Split(r.URL.Path, "/")
@@ -38,28 +34,28 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	requestRes, err := httputil.DumpRequest(r, true)
 	if err != nil {
-		zerolog.Ctx(ctx).Err(err).Msgf("error obtaining request string")
+		log.Err(err).Msgf("error obtaining request string")
 	} else {
-		zerolog.Ctx(ctx).Debug().Msgf("%s", requestRes)
+		log.Debug().Msgf("%s", requestRes)
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		err := handleGet(w, compositionId, ctx)
+		err := handleGet(w, compositionId)
 		if err != nil {
-			zerolog.Ctx(ctx).Err(err).Msg("error while managing GET request")
+			log.Err(err).Msg("error while managing GET request")
 			http.Error(w, fmt.Sprintf("Error parsing GET request: %s", err), http.StatusNotFound)
 		}
 	case http.MethodDelete:
-		err := handleDelete(w, compositionId, ctx)
+		err := handleDelete(w, compositionId)
 		if err != nil {
-			zerolog.Ctx(ctx).Err(err).Msg("error while managing DELETE request")
+			log.Err(err).Msg("error while managing DELETE request")
 			http.Error(w, fmt.Sprintf("Error parsing DELETE request: %s", err), http.StatusInternalServerError)
 		}
 	case http.MethodPost:
-		err := handlePost(w, r, ctx)
+		err := handlePost(w, r)
 		if err != nil {
-			zerolog.Ctx(ctx).Err(err).Msg("error while managing POST request")
+			log.Err(err).Msg("error while managing POST request")
 			http.Error(w, fmt.Sprintf("Error parsing POST request: %s", err), http.StatusInternalServerError)
 		}
 	default:
@@ -67,8 +63,8 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleGet(w http.ResponseWriter, compositionId string, ctx context.Context) error {
-	zerolog.Ctx(ctx).Info().Msgf("GET handler for CompositionId: %s", compositionId)
+func handleGet(w http.ResponseWriter, compositionId string) error {
+	log.Info().Msgf("GET handler for CompositionId: %s", compositionId)
 	resourceTreeString, ok := GetFromCache(compositionId)
 	if !ok {
 		return fmt.Errorf("could not find resource tree for CompositionId %s", compositionId)
@@ -76,19 +72,19 @@ func handleGet(w http.ResponseWriter, compositionId string, ctx context.Context)
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, "%s", resourceTreeString)
 
-	zerolog.Ctx(ctx).Debug().Msgf(resourceTreeString)
+	log.Debug().Msgf(resourceTreeString)
 	return nil
 }
 
-func handleDelete(w http.ResponseWriter, compositionId string, ctx context.Context) error {
-	zerolog.Ctx(ctx).Info().Msgf("DELETE request for CompositionId: %s", compositionId)
+func handleDelete(w http.ResponseWriter, compositionId string) error {
+	log.Info().Msgf("DELETE request for CompositionId: %s", compositionId)
 	DeleteFromCache(compositionId)
 	fmt.Fprintf(w, "DELETE request for CompositionId %s", compositionId)
 	return nil
 }
 
-func handlePost(w http.ResponseWriter, r *http.Request, ctx context.Context) error {
-	zerolog.Ctx(ctx).Info().Msg("POST request received")
+func handlePost(w http.ResponseWriter, r *http.Request) error {
+	log.Info().Msg("POST request received")
 
 	// Read the request body
 	body, err := io.ReadAll(r.Body)
