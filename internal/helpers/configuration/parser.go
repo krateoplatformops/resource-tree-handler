@@ -26,12 +26,12 @@ type Configuration struct {
 }
 
 func (c *Configuration) Default() {
-	c.WebServicePort = 8084
+	c.WebServicePort = 8085
 	c.DebugLevel = zerolog.DebugLevel
 }
 
 func ParseConfig() (Configuration, error) {
-	port, err := strconv.Atoi(os.Getenv("RESOURCE_TREE_HANDLER_PORT"))
+	port, err := strconv.Atoi(os.Getenv("RESOURCE_TREE_HANDLER_API_PORT"))
 	if err != nil {
 		return Configuration{}, err
 	}
@@ -44,7 +44,7 @@ func ParseConfig() (Configuration, error) {
 	case "error":
 		return Configuration{WebServicePort: port, DebugLevel: zerolog.ErrorLevel}, nil
 	}
-	return Configuration{WebServicePort: port, DebugLevel: zerolog.DebugLevel}, nil
+	return Configuration{WebServicePort: port, DebugLevel: zerolog.InfoLevel}, nil
 }
 
 // func ParseConfigFile(ctx context.Context, rc *rest.Config, filePath string) (Configuration, error) {
