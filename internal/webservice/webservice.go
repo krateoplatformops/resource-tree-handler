@@ -1,99 +1,110 @@
 package webservice
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
-	"strings"
 
+	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 const (
 	homeAddress    = "/"
-	requestAddress = "/compositions/"
+	requestAddress = "/compositions/:compositionId"
 )
 
-func handleHome(w http.ResponseWriter, r *http.Request) {
-	html := `<html><body>Resource Tree generator Web Service home page</body></html>`
-	fmt.Fprint(w, html)
+func debugLoggerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Log request
+		requestDump, err := httputil.DumpRequest(c.Request, true)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to dump request")
+		} else {
+			log.Debug().Msgf("Incoming request:\n%s", string(requestDump))
+		}
+
+		// Create a response writer that captures the response
+		blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
+		c.Writer = blw
+
+		// Process request
+		c.Next()
+
+		// Log response
+		responseDump := fmt.Sprintf("HTTP/1.1 %d %s\n", c.Writer.Status(), http.StatusText(c.Writer.Status()))
+		for k, v := range c.Writer.Header() {
+			responseDump += fmt.Sprintf("%s: %s\n", k, v[0])
+		}
+		responseDump += "\n" + blw.body.String()
+
+		log.Debug().Msgf("Outgoing response:\n%s", responseDump)
+	}
 }
 
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-	log.Info().Msgf("received request on endpoint: %s request type: %s", r.URL.Path, r.Method)
+type bodyLogWriter struct {
+	gin.ResponseWriter
+	body *bytes.Buffer
+}
 
-	// Extract compositionId from the URL
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) != 3 || parts[1] != "compositions" {
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
-		return
-	}
-	compositionId := parts[2]
+func (w bodyLogWriter) Write(b []byte) (int, error) {
+	w.body.Write(b)
+	return w.ResponseWriter.Write(b)
+}
 
-	requestRes, err := httputil.DumpRequest(r, true)
-	if err != nil {
-		log.Err(err).Msgf("error obtaining request string")
-	} else {
-		log.Debug().Msgf("%s", requestRes)
-	}
+func handleHome(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
 
-	switch r.Method {
+func handleRequest(c *gin.Context) {
+	compositionId := c.Param("compositionId")
+	switch c.Request.Method {
 	case http.MethodGet:
-		err := handleGet(w, compositionId)
+		err := handleGet(c, compositionId)
 		if err != nil {
-			log.Err(err).Msg("error while managing GET request")
-			http.Error(w, fmt.Sprintf("Error parsing GET request: %s", err), http.StatusNotFound)
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", err)})
 		}
 	case http.MethodDelete:
-		err := handleDelete(w, compositionId)
+		err := handleDelete(c, compositionId)
 		if err != nil {
-			log.Err(err).Msg("error while managing DELETE request")
-			http.Error(w, fmt.Sprintf("Error parsing DELETE request: %s", err), http.StatusInternalServerError)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error parsing DELETE request: %s", err)})
 		}
 	case http.MethodPost:
-		err := handlePost(w, r)
+		err := handlePost(c)
 		if err != nil {
-			log.Err(err).Msg("error while managing POST request")
-			http.Error(w, fmt.Sprintf("Error parsing POST request: %s", err), http.StatusInternalServerError)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error parsing POST request: %s", err)})
 		}
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Method not allowed"})
 	}
 }
 
-func handleGet(w http.ResponseWriter, compositionId string) error {
-	log.Info().Msgf("GET handler for CompositionId: %s", compositionId)
+func handleGet(c *gin.Context, compositionId string) error {
 	resourceTreeString, ok := GetFromCache(compositionId)
 	if !ok {
 		return fmt.Errorf("could not find resource tree for CompositionId %s", compositionId)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, "%s", resourceTreeString)
-
-	log.Debug().Msgf(resourceTreeString)
+	c.JSON(http.StatusOK, resourceTreeString)
 	return nil
 }
 
-func handleDelete(w http.ResponseWriter, compositionId string) error {
-	log.Info().Msgf("DELETE request for CompositionId: %s", compositionId)
+func handleDelete(c *gin.Context, compositionId string) error {
 	DeleteFromCache(compositionId)
-	fmt.Fprintf(w, "DELETE request for CompositionId %s", compositionId)
+	c.String(http.StatusOK, "DELETE for CompositionId %s executed", compositionId)
 	return nil
 }
 
-func handlePost(w http.ResponseWriter, r *http.Request) error {
-	log.Info().Msg("POST request received")
-
-	// Read the request body
-	body, err := io.ReadAll(r.Body)
+func handlePost(c *gin.Context) error {
+	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return fmt.Errorf("error reading request body: %w", err)
 	}
-	defer r.Body.Close()
+	defer c.Request.Body.Close()
 
-	// Parse JSON
 	var data ResourceTree
 	err = json.Unmarshal(body, &data)
 	if err != nil {
@@ -106,12 +117,23 @@ func handlePost(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	AddToCache(string(resourceTreeJsonStatus), data.CompositionId)
-	fmt.Fprint(w, string(resourceTreeJsonStatus))
+	c.String(http.StatusOK, string(resourceTreeJsonStatus))
 	return nil
 }
 
 func Spinup(webservicePort int) {
-	http.HandleFunc(homeAddress, handleHome)
-	http.HandleFunc(requestAddress, handleRequest)
-	http.ListenAndServe(fmt.Sprintf(":%d", webservicePort), nil)
+	var r *gin.Engine
+	// gin.New() instead of gin.Default() to avoid default logging
+	if zerolog.GlobalLevel() == zerolog.DebugLevel {
+		r = gin.New()
+		r.Use(gin.Recovery())
+		r.Use(debugLoggerMiddleware())
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+		r = gin.Default()
+	}
+
+	r.GET(homeAddress, handleHome)
+	r.Any(requestAddress, handleRequest)
+	r.Run(fmt.Sprintf(":%d", webservicePort))
 }
