@@ -1,0 +1,45 @@
+@startuml
+allowmixing
+
+package "resource-tree-handler" {
+  object POST {
+  /handle
+  }
+  object GET {
+  /compositions/<composition_id>
+  }
+  object SSE_Client {
+  /notifications - topic: <composition_id
+  }
+}
+
+package configMapType {
+  component filters
+  object labels {
+  apiVersion
+  resource
+  name
+  namespace
+  }
+}
+
+database db
+
+object composition {
+managed <U+007B>
+...
+<U+007D>
+}
+
+component eventsse
+component eventrouter
+component frontend
+
+GET --> db : retrieve resource\ntree json status
+POST --> db : store resource\ntree json status
+POST --> composition : get managed array 
+configMapType <-- POST : filter by labels
+
+SSE_Client <-- eventsse  : events with <composition_id>
+eventrouter --> POST : all events
+frontend -> GET

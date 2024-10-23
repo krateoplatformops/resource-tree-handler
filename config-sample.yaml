@@ -1,0 +1,29 @@
+apiVersion: resourcetrees.krateo.io/v1
+kind: CompositionReference
+metadata:
+  name: fireworksapp-demolive
+  namespace: fireworksapp-system
+  labels:
+    krateo.io/composition-group: composition.krateo.io
+    krateo.io/composition-version: v1-1-6
+    krateo.io/composition-name: krateo-demo
+    krateo.io/composition-namespace: fireworksapp-system
+spec:
+  filters:
+    exclude:
+    - apiVersion: "templates.krateo.io/v1alpha1"
+      resource: "collections"
+    - apiVersion: "templates.krateo.io/v1alpha1"
+      resource: "widgets"
+    - apiVersion: "v1"
+      resource: "configmaps"
+      name: "^composition-"
+---
+apiVersion: eventrouter.krateo.io/v1alpha1
+kind: Registration
+metadata:
+  name: resource-tree-handler
+  namespace: krateo-system
+spec:
+  serviceName: resource-tree-handler
+  endpoint: http://resource-tree-handler.krateo-system:8086/handle

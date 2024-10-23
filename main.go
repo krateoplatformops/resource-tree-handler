@@ -3,13 +3,14 @@ package main
 import (
 	"os"
 	parser "resource-tree-handler/internal/helpers/configuration"
+	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
+	"resource-tree-handler/internal/ssemanager"
 	"resource-tree-handler/internal/webservice"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"k8s.io/client-go/rest"
 )
-
-//const configFilePathDefault = "/config.yaml"
 
 func main() {
 	configuration, err := parser.ParseConfig()
@@ -33,13 +34,31 @@ func main() {
 	}
 
 	// Kubernetes configuration
-	/*cfg, err := rest.InClusterConfig()
+	config, err := rest.InClusterConfig()
 	if err != nil {
-		zerolog.Ctx(ctx).Error().Err(err).Msg("resolving kubeconfig for rest client")
-	}*/
+		log.Error().Err(err).Msg("resolving kubeconfig for rest client")
+		return
+	}
 
-	// Configure etcd
-	// TODO ...
+	dynClient, err := kubeHelper.New(config)
+	if err != nil {
+		log.Error().Err(err).Msg("obtaining dynamic client for kubernetes")
+		return
+	}
 
-	webservice.Spinup(configuration.WebServicePort)
+	// Start client to receive SSE events from eventsse
+	log.Info().Msgf("starting SSE client on %s", configuration.SSEUrl)
+	sse := &ssemanager.SSE{
+		Config: config,
+	}
+	sse.Spinup(configuration.SSEUrl) // only initialization and go routines, non-blocking
+
+	// // Start webservice to serve endpoints
+	w := webservice.Webservice{
+		Config:         config,
+		WebservicePort: configuration.WebServicePort,
+		DynClient:      dynClient,
+		SSE:            sse,
+	}
+	w.Spinup() // blocks main thread
 }

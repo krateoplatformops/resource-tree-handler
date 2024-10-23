@@ -1,6 +1,7 @@
-package parser
+package configuration
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 type Configuration struct {
 	WebServicePort int           `json:"webServicePort" yaml:"webServicePort"`
+	SSEUrl         string        `json:"sseURL" yaml:"sseURL"`
 	DebugLevel     zerolog.Level `json:"debugLevel" yaml:"debugLevel"`
 	// EtcdAddress    string `json:"etcdAddress" yaml:"etcdAddress"`
 	// EtcdPort       string `json:"etcdPort" yaml:"etcdPort"`
@@ -36,15 +38,25 @@ func ParseConfig() (Configuration, error) {
 		return Configuration{}, err
 	}
 
+	sseUrl := os.Getenv("URL_SSE")
+	if sseUrl == "" {
+		return Configuration{}, fmt.Errorf("SSE URL cannot be empty")
+	}
+
+	debugLevel := zerolog.InfoLevel
 	switch strings.ToLower(os.Getenv("DEBUG_LEVEL")) {
 	case "debug":
-		return Configuration{WebServicePort: port, DebugLevel: zerolog.DebugLevel}, nil
+		debugLevel = zerolog.DebugLevel
 	case "info":
-		return Configuration{WebServicePort: port, DebugLevel: zerolog.InfoLevel}, nil
+		debugLevel = zerolog.InfoLevel
 	case "error":
-		return Configuration{WebServicePort: port, DebugLevel: zerolog.ErrorLevel}, nil
+		debugLevel = zerolog.ErrorLevel
 	}
-	return Configuration{WebServicePort: port, DebugLevel: zerolog.InfoLevel}, nil
+	return Configuration{
+		WebServicePort: port,
+		SSEUrl:         sseUrl,
+		DebugLevel:     debugLevel,
+	}, nil
 }
 
 // func ParseConfigFile(ctx context.Context, rc *rest.Config, filePath string) (Configuration, error) {

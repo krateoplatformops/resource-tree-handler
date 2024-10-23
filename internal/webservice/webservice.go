@@ -1,139 +1,180 @@
 package webservice
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httputil"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+
+	corev1 "k8s.io/api/core/v1"
+
+	types "resource-tree-handler/apis"
+	cacheHelper "resource-tree-handler/internal/cache"
+	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
+	compositionHelper "resource-tree-handler/internal/helpers/kube/compositions"
+	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
+	resourcetreeHelper "resource-tree-handler/internal/helpers/resourcetree"
+	sseHelper "resource-tree-handler/internal/ssemanager"
 )
 
 const (
-	homeAddress    = "/"
-	requestAddress = "/compositions/:compositionId"
+	homeEndpoint      = "/"
+	listEndpoint      = "/list"
+	allEventsEndpoint = "/handle"
+	requestEndpoint   = "/compositions/:compositionId"
+	refreshEndpoint   = "/refresh/:compositionId"
 )
 
-func debugLoggerMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Log request
-		requestDump, err := httputil.DumpRequest(c.Request, true)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to dump request")
-		} else {
-			log.Debug().Msgf("Incoming request:\n%s", string(requestDump))
-		}
-
-		// Create a response writer that captures the response
-		blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
-		c.Writer = blw
-
-		// Process request
-		c.Next()
-
-		// Log response
-		responseDump := fmt.Sprintf("HTTP/1.1 %d %s\n", c.Writer.Status(), http.StatusText(c.Writer.Status()))
-		for k, v := range c.Writer.Header() {
-			responseDump += fmt.Sprintf("%s: %s\n", k, v[0])
-		}
-		responseDump += "\n" + blw.body.String()
-
-		log.Debug().Msgf("Outgoing response:\n%s", responseDump)
-	}
+type Webservice struct {
+	WebservicePort int
+	Config         *rest.Config
+	DynClient      *dynamic.DynamicClient
+	SSE            *sseHelper.SSE
 }
 
-type bodyLogWriter struct {
-	gin.ResponseWriter
-	body *bytes.Buffer
-}
-
-func (w bodyLogWriter) Write(b []byte) (int, error) {
-	w.body.Write(b)
-	return w.ResponseWriter.Write(b)
-}
-
-func handleHome(c *gin.Context) {
+func (r *Webservice) handleHome(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-func handleRequest(c *gin.Context) {
-	compositionId := c.Param("compositionId")
-	switch c.Request.Method {
-	case http.MethodGet:
-		err := handleGet(c, compositionId)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", err)})
-		}
-	case http.MethodDelete:
-		err := handleDelete(c, compositionId)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error parsing DELETE request: %s", err)})
-		}
-	case http.MethodPost:
-		err := handlePost(c)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error parsing POST request: %s", err)})
-		}
-	default:
-		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Method not allowed"})
-	}
-}
-
-func handleGet(c *gin.Context, compositionId string) error {
-	resourceTreeString, ok := GetFromCache(compositionId)
-	if !ok {
-		return fmt.Errorf("could not find resource tree for CompositionId %s", compositionId)
-	}
-	c.JSON(http.StatusOK, resourceTreeString)
-	return nil
-}
-
-func handleDelete(c *gin.Context, compositionId string) error {
-	DeleteFromCache(compositionId)
-	c.String(http.StatusOK, "DELETE for CompositionId %s executed", compositionId)
-	return nil
-}
-
-func handlePost(c *gin.Context) error {
+func (r *Webservice) handleAllEvents(c *gin.Context) {
+	log.Debug().Msg("received event on /handle")
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		return fmt.Errorf("error reading request body: %w", err)
+		log.Error().Err(err).Msg("error reading request body")
+		return
 	}
 	defer c.Request.Body.Close()
 
-	var data ResourceTree
-	err = json.Unmarshal(body, &data)
+	var event corev1.Event
+	err = json.Unmarshal(body, &event)
 	if err != nil {
-		return fmt.Errorf("error parsing JSON: %w", err)
+		log.Error().Err(err).Msg("error parsing JSON")
+		return
 	}
 
-	resourceTreeJsonStatus, err := json.Marshal(data.Resources.Status)
+	gv, err := schema.ParseGroupVersion(event.InvolvedObject.APIVersion)
 	if err != nil {
-		return fmt.Errorf("error marshaling resource tree into JSON: %w", err)
+		log.Error().Err(err).Msg("could not parse Group Version from ApiVersion")
+		return
 	}
 
-	AddToCache(string(resourceTreeJsonStatus), data.CompositionId)
-	c.String(http.StatusOK, string(resourceTreeJsonStatus))
-	return nil
+	if gv.Group != "composition.krateo.io" {
+		return
+	}
+
+	log.Debug().Msgf("event.Reason: %s", event.Reason)
+
+	// Composition GVK
+	gr := kubeHelper.InferGroupResource(gv.Group, event.InvolvedObject.Kind)
+	composition := &types.Reference{
+		ApiVersion: event.InvolvedObject.APIVersion,
+		Resource:   gr.Resource,
+		Name:       event.InvolvedObject.Name,
+		Namespace:  event.InvolvedObject.Namespace,
+	}
+
+	obj, err := kubeHelper.GetObj(c.Request.Context(), composition, r.DynClient)
+	if err != nil {
+		log.Error().Err(err).Msg("retrieving object")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("error while retrieving object: %s", err)})
+		return
+	}
+
+	if event.Reason == "CompositionCreated" || !cacheHelper.IsUidInCache(string(obj.GetUID())) {
+		log.Info().Msgf("'CompositionCreated' event for composition %s %s %s %s", composition.ApiVersion, composition.Resource, composition.Name, composition.Namespace)
+		// Build resource tree for composition
+		err := resourcetreeHelper.HandleCreate(obj, *composition, r.DynClient)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling CREATE event: %s", err)})
+		}
+		r.SSE.SubscribeTo(string(obj.GetUID()))
+	} else if event.Reason == "CompositionDeleted" {
+		log.Info().Msgf("'CompositionDeleted' event for composition %s %s %s %s", composition.ApiVersion, composition.Resource, composition.Name, composition.Namespace)
+		err := resourcetreeHelper.HandleDelete(c, string(obj.GetUID()))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling DELETE event: %s", err)})
+		}
+		r.SSE.UnsubscribeFrom(string(obj.GetUID()))
+	}
+
+	log.Debug().Msg("End of handler for Events endpoint")
 }
 
-func Spinup(webservicePort int) {
-	var r *gin.Engine
-	// gin.New() instead of gin.Default() to avoid default logging
-	if zerolog.GlobalLevel() == zerolog.DebugLevel {
-		r = gin.New()
-		r.Use(gin.Recovery())
-		r.Use(debugLoggerMiddleware())
-	} else {
-		gin.SetMode(gin.ReleaseMode)
-		r = gin.Default()
+func (r *Webservice) handleRefresh(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("error reading request body")
+		return
+	}
+	defer c.Request.Body.Close()
+
+	var reference *types.Reference
+	err = json.Unmarshal(body, &reference)
+	if err != nil {
+		log.Error().Err(err).Msg("error parsing JSON")
+		return
 	}
 
-	r.GET(homeAddress, handleHome)
-	r.Any(requestAddress, handleRequest)
-	r.Run(fmt.Sprintf(":%d", webservicePort))
+	log.Info().Msgf("'CompositionCreated' event for composition %s %s %s %s", reference.ApiVersion, reference.Resource, reference.Name, reference.Namespace)
+
+	obj, err := kubeHelper.GetObj(c.Request.Context(), reference, r.DynClient)
+	if err != nil {
+		log.Error().Err(err).Msg("retrieving object")
+	}
+	exclude := filtersHelper.Get(r.DynClient, *reference)
+	resourceTree, err := compositionHelper.GetCompositionResourcesStatus(r.DynClient, obj, *reference, exclude)
+	if err != nil {
+		log.Error().Err(err).Msg("retrieving managed array statuses")
+	}
+
+	resourceTreeJsonStatus, err := json.Marshal(resourceTree.Resources.Status)
+	if err != nil {
+		log.Error().Err(err).Msg("error marshaling resource tree into JSON")
+	}
+
+	cacheHelper.AddToCache(string(resourceTreeJsonStatus), resourceTree, string(obj.GetUID()), *reference, types.Filters{Exclude: exclude})
+}
+
+func (r *Webservice) handleList(c *gin.Context) {
+	keys := cacheHelper.ListKeysFromCache()
+	c.JSON(http.StatusOK, gin.H{"composition_ids": strings.Join(keys, " ")})
+}
+
+func (r *Webservice) handleRequest(c *gin.Context) {
+	compositionId := c.Param("compositionId")
+	resourceTreeString, ok := cacheHelper.GetJSONFromCache(compositionId)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", fmt.Errorf("could not find resource tree for CompositionId %s", compositionId))})
+
+	}
+	c.JSON(http.StatusOK, resourceTreeString)
+}
+
+func (r *Webservice) Spinup() {
+	var c *gin.Engine
+	// gin.New() instead of gin.Default() to avoid default logging
+	if zerolog.GlobalLevel() == zerolog.DebugLevel {
+		c = gin.New()
+		c.Use(gin.Recovery())
+		c.Use(debugLoggerMiddleware())
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+		c = gin.Default()
+	}
+
+	c.GET(homeEndpoint, r.handleHome)
+	c.GET(requestEndpoint, r.handleRequest)
+	c.GET(listEndpoint, r.handleList)
+	c.POST(refreshEndpoint, r.handleRefresh)
+	c.POST(allEventsEndpoint, r.handleAllEvents)
+
+	c.Run(fmt.Sprintf(":%d", r.WebservicePort))
 }
