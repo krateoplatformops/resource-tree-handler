@@ -1,4 +1,4 @@
-package etcd
+package cache
 
 type EtcdDatabase struct {
 	Address  string

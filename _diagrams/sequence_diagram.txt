@@ -1,0 +1,58 @@
+note left: filters and statuses
+
+@startuml
+
+title Resource Tree Handler V2
+
+participant eventrouter
+participant "resource-tree-handler"
+participant Kubernetes
+database db
+participant eventsse
+participant frontend
+
+== CREATE ==
+
+eventrouter -> "resource-tree-handler" : POST /handle
+note left
+all events
+end note
+
+alt ApiVersion == compositions.krateo.io
+"resource-tree-handler" -> Kubernetes : get managed array's status
+"resource-tree-handler" -> Kubernetes : get configMap filters
+note right: filter by labels
+Kubernetes -> "resource-tree-handler"
+note left: filters and statuses
+hnote over "resource-tree-handler": create resource \ntree json status
+"resource-tree-handler" -> db : create and store\nresource tree
+else ApiVersion != compositions.krateo.io
+hnote over "resource-tree-handler": idle
+end
+
+== EVENTS ==
+
+"resource-tree-handler" -> eventsse : GET /notifications - topic: <composition_id>
+note right
+event on object
+with <composition_id>
+end note
+eventsse -> "resource-tree-handler" : server-sent event for <composition_id>
+"resource-tree-handler" -> Kubernetes : get 'event' resource status
+"resource-tree-handler" -> Kubernetes : get configMap filters
+note right: filter by labels
+Kubernetes -> "resource-tree-handler"
+note left: filters and 'event'\nresource status
+hnote over "resource-tree-handler": update resource \ntree json status\nfor 'event' resource\n**only**
+"resource-tree-handler" -> db : store resource tree
+
+== FRONTEND ==
+
+frontend -> "resource-tree-handler" : GET /compositions/<composition_id>
+"resource-tree-handler" -> db : retrieve resource tree json status
+db -> "resource-tree-handler" 
+note left: resource tree \njson status
+"resource-tree-handler" -> frontend
+note right: resource tree \njson status
+
+@enduml
