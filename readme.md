@@ -29,4 +29,4 @@ This endpoint can be called with GET, POST or DELETE, with different effects:
 - `DELETE`: deletes the resource tree associated with composition_id from the cache;
 
 ## Configuration
-This webservice can be installed with the respective [HELM chart](https://github.com/krateoplatformops/resource-tree-handler-chart).
+This webservice can be installed with the respective [HELM chart](https://github.com/krateoplatformops/resource-tree-handler-alpha-chart).
