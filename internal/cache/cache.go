@@ -8,7 +8,6 @@ import (
 
 type ResourceTreeUpdate struct {
 	LastUpdate           time.Time
-	ResourceTreeJSON     string
 	ResourceTree         types.ResourceTree
 	CompositionReference types.Reference
 	Filters              types.Filters
@@ -29,8 +28,7 @@ func init() {
 	}
 }
 
-func (c *ThreadSafeCache) AddToCache(resourceTreeJSON string,
-	resourceTree types.ResourceTree,
+func (c *ThreadSafeCache) AddToCache(resourceTree types.ResourceTree,
 	compositionId string,
 	compositionReference types.Reference,
 	filters types.Filters) {
@@ -41,14 +39,12 @@ func (c *ThreadSafeCache) AddToCache(resourceTreeJSON string,
 	c.cache[compositionId] = &ResourceTreeUpdate{
 		LastUpdate:           time.Now(),
 		ResourceTree:         resourceTree,
-		ResourceTreeJSON:     resourceTreeJSON,
 		CompositionReference: compositionReference,
 		Filters:              filters,
 	}
 }
 
-func (c *ThreadSafeCache) UpdateCacheEntry(resourceTreeJSON string,
-	resourceTree types.ResourceTree,
+func (c *ThreadSafeCache) UpdateCacheEntry(resourceTree types.ResourceTree,
 	compositionId string,
 	compositionReference types.Reference) {
 
@@ -57,18 +53,18 @@ func (c *ThreadSafeCache) UpdateCacheEntry(resourceTreeJSON string,
 	if _, ok := c.cache[compositionId]; ok {
 		c.cache[compositionId].LastUpdate = time.Now()
 		c.cache[compositionId].ResourceTree = resourceTree
-		c.cache[compositionId].ResourceTreeJSON = resourceTreeJSON
 	}
 }
 
-func (c *ThreadSafeCache) GetJSONFromCache(compositionId string) (string, bool) {
+func (c *ThreadSafeCache) GetJSONFromCache(compositionId string) ([]*types.ResourceNodeStatus, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	obj, ok := c.cache[compositionId]
 	if ok {
-		return obj.ResourceTreeJSON, ok
+		return obj.ResourceTree.Resources.Status, ok
 	}
-	return "", ok
+	return []*types.ResourceNodeStatus{}, ok
 }
 
 func (c *ThreadSafeCache) GetResourceTreeFromCache(compositionId string) (*ResourceTreeUpdate, bool) {
@@ -109,15 +105,15 @@ func (c *ThreadSafeCache) IsUidInCache(compositionId string) bool {
 }
 
 // These functions are kept for backwards compatibility
-func AddToCache(resourceTreeJSON string, resourceTree types.ResourceTree, compositionId string, compositionReference types.Reference, filters types.Filters) {
-	cache.AddToCache(resourceTreeJSON, resourceTree, compositionId, compositionReference, filters)
+func AddToCache(resourceTree types.ResourceTree, compositionId string, compositionReference types.Reference, filters types.Filters) {
+	cache.AddToCache(resourceTree, compositionId, compositionReference, filters)
 }
 
-func UpdateCacheEntry(resourceTreeJSON string, resourceTree types.ResourceTree, compositionId string, compositionReference types.Reference) {
-	cache.UpdateCacheEntry(resourceTreeJSON, resourceTree, compositionId, compositionReference)
+func UpdateCacheEntry(resourceTree types.ResourceTree, compositionId string, compositionReference types.Reference) {
+	cache.UpdateCacheEntry(resourceTree, compositionId, compositionReference)
 }
 
-func GetJSONFromCache(compositionId string) (string, bool) {
+func GetJSONFromCache(compositionId string) ([]*types.ResourceNodeStatus, bool) {
 	return cache.GetJSONFromCache(compositionId)
 }
 

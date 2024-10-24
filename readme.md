@@ -47,6 +47,7 @@ spec:
   serviceName: resource-tree-handler
   endpoint: http://resource-tree-handler.krateo-system:8086/handle
 ```
+This CR is automatically installed by the [HELM chart](http://github.com/krateoplatformops/resource-tree-handler-chart).
 
 To filter objects from the resource tree, you should use the CompositionReferece Custom Resource Definition. To map the custom resource to the composition, four labels need to be added with the information of the composition:
  - `krateo.io/composition-group`
