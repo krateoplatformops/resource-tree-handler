@@ -1,11 +1,8 @@
 package resourcetree
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
@@ -16,10 +13,21 @@ import (
 	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
 )
 
-func HandleDelete(c *gin.Context, compositionId string) error {
-	cacheHelper.DeleteFromCache(compositionId)
-	c.String(http.StatusOK, "DELETE for CompositionId %s executed", compositionId)
-	return nil
+func GetUidByCompositionReference(composition *types.Reference) string {
+	keys := cacheHelper.ListKeysFromCache()
+	for _, compositionId := range keys {
+		resourceTree, ok := cacheHelper.GetResourceTreeFromCache(compositionId)
+		if !ok {
+			return ""
+		}
+		if resourceTree.CompositionReference.ApiVersion == composition.ApiVersion &&
+			resourceTree.CompositionReference.Resource == composition.Resource &&
+			resourceTree.CompositionReference.Namespace == composition.Namespace &&
+			resourceTree.CompositionReference.Name == composition.Name {
+			return compositionId
+		}
+	}
+	return ""
 }
 
 func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, dynClient *dynamic.DynamicClient) error {
@@ -30,13 +38,7 @@ func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, d
 		return fmt.Errorf("error while retrieving managed array statuses: %w", err)
 	}
 
-	resourceTreeJsonStatus, err := json.Marshal(resourceTree.Resources.Status)
-	if err != nil {
-		log.Error().Err(err).Msg("error marshaling resource tree into JSON")
-		return fmt.Errorf("error marshaling resource tree into JSON: %w", err)
-	}
-
-	cacheHelper.AddToCache(string(resourceTreeJsonStatus), resourceTree, string(obj.GetUID()), composition, types.Filters{Exclude: exclude})
+	cacheHelper.AddToCache(resourceTree, string(obj.GetUID()), composition, types.Filters{Exclude: exclude})
 	return nil
 }
 
@@ -73,10 +75,5 @@ func HandleUpdate(newObjectReference types.Reference, newObjectKind string, comp
 		resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status, &resourceNodeJsonStatus)
 	}
 
-	resourceTreeJsonStatus, err := json.Marshal(resourceTree.ResourceTree.Resources.Status)
-	if err != nil {
-		log.Error().Err(err).Msg("error marshaling resource tree into JSON")
-	}
-
-	cacheHelper.UpdateCacheEntry(compositionId, resourceTree.ResourceTree, string(resourceTreeJsonStatus), resourceTree.CompositionReference)
+	cacheHelper.UpdateCacheEntry(resourceTree.ResourceTree, compositionId, resourceTree.CompositionReference)
 }

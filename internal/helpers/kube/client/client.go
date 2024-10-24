@@ -44,7 +44,7 @@ func GetObj(ctx context.Context, cr *api_types.Reference, dynClient *dynamic.Dyn
 	// Get structure to send to webservice
 	res, err := dynClient.Resource(gvr).Namespace(cr.Namespace).Get(ctx, cr.Name, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieving resource %s with name %s in namespace %s, with apiVersion %s: %w", cr.Resource, cr.Name, cr.Namespace, cr.ApiVersion, err)
+		return nil, fmt.Errorf("unable to retrieve resource %s with name %s in namespace %s, with apiVersion %s: %w", cr.Resource, cr.Name, cr.Namespace, cr.ApiVersion, err)
 	}
 	return res, nil
 }
@@ -53,6 +53,14 @@ func InferGroupResource(g, k string) schema.GroupResource {
 	gk := schema.GroupKind{
 		Group: g,
 		Kind:  k,
+	}
+
+	// The namer does not work with the kind "Repo" with plural resources "repoes"
+	if (g == "git.krateo.io" || g == "github.krateo.io") && k == "Repo" {
+		return schema.GroupResource{
+			Group:    gk.Group,
+			Resource: "repoes",
+		}
 	}
 
 	kind := types.Type{Name: types.Name{Name: gk.Kind}}

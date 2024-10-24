@@ -71,6 +71,7 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 	}
 
 	log.Debug().Msgf("event.Reason: %s", event.Reason)
+	log.Debug().Msgf("IsUidInCache(%s): %t", string(event.InvolvedObject.UID), cacheHelper.IsUidInCache(string(event.InvolvedObject.UID)))
 
 	// Composition GVK
 	gr := kubeHelper.InferGroupResource(gv.Group, event.InvolvedObject.Kind)
@@ -79,6 +80,20 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 		Resource:   gr.Resource,
 		Name:       event.InvolvedObject.Name,
 		Namespace:  event.InvolvedObject.Namespace,
+	}
+
+	if event.Reason == "CompositionDeleted" {
+		log.Info().Msgf("'CompositionDeleted' event for composition %s %s %s %s", composition.ApiVersion, composition.Resource, composition.Name, composition.Namespace)
+		compositionId := resourcetreeHelper.GetUidByCompositionReference(composition)
+		if compositionId == "" {
+			log.Error().Err(fmt.Errorf("could not find composition id in cache by composition reference")).Msgf("error deleting composition resources")
+			c.String(http.StatusInternalServerError, "DELETE for CompositionId %s not executed", compositionId)
+			return
+		}
+		cacheHelper.DeleteFromCache(compositionId)
+		c.String(http.StatusOK, "DELETE for CompositionId %s executed", compositionId)
+		r.SSE.UnsubscribeFrom(compositionId)
+		return
 	}
 
 	obj, err := kubeHelper.GetObj(c.Request.Context(), composition, r.DynClient)
@@ -94,15 +109,9 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 		err := resourcetreeHelper.HandleCreate(obj, *composition, r.DynClient)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling CREATE event: %s", err)})
+			return
 		}
 		r.SSE.SubscribeTo(string(obj.GetUID()))
-	} else if event.Reason == "CompositionDeleted" {
-		log.Info().Msgf("'CompositionDeleted' event for composition %s %s %s %s", composition.ApiVersion, composition.Resource, composition.Name, composition.Namespace)
-		err := resourcetreeHelper.HandleDelete(c, string(obj.GetUID()))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling DELETE event: %s", err)})
-		}
-		r.SSE.UnsubscribeFrom(string(obj.GetUID()))
 	}
 
 	log.Debug().Msg("End of handler for Events endpoint")
@@ -135,12 +144,7 @@ func (r *Webservice) handleRefresh(c *gin.Context) {
 		log.Error().Err(err).Msg("retrieving managed array statuses")
 	}
 
-	resourceTreeJsonStatus, err := json.Marshal(resourceTree.Resources.Status)
-	if err != nil {
-		log.Error().Err(err).Msg("error marshaling resource tree into JSON")
-	}
-
-	cacheHelper.AddToCache(string(resourceTreeJsonStatus), resourceTree, string(obj.GetUID()), *reference, types.Filters{Exclude: exclude})
+	cacheHelper.AddToCache(resourceTree, string(obj.GetUID()), *reference, types.Filters{Exclude: exclude})
 }
 
 func (r *Webservice) handleList(c *gin.Context) {
@@ -150,12 +154,28 @@ func (r *Webservice) handleList(c *gin.Context) {
 
 func (r *Webservice) handleRequest(c *gin.Context) {
 	compositionId := c.Param("compositionId")
-	resourceTreeString, ok := cacheHelper.GetJSONFromCache(compositionId)
+	resourceTreeStatusObj, ok := cacheHelper.GetJSONFromCache(compositionId)
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", fmt.Errorf("could not find resource tree for CompositionId %s", compositionId))})
-
+		log.Warn().Msgf("could not find resource tree for CompositionId %s, triggering CREATE event", compositionId)
+		compositionUnstructured, compositionReferece, err := compositionHelper.GetCompositionById(compositionId, r.DynClient, r.Config)
+		if err != nil {
+			log.Error().Err(err).Msg("could not obtain composition object with composition id only")
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", fmt.Errorf("could not find resource tree for CompositionId %s", compositionId))})
+			return
+		}
+		err = resourcetreeHelper.HandleCreate(compositionUnstructured, *compositionReferece, r.DynClient)
+		if err != nil {
+			log.Error().Err(err).Msgf("could not create resource tree for composition id: %s", compositionId)
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", fmt.Errorf("could not find resource tree for CompositionId %s", compositionId))})
+			return
+		}
+		r.SSE.SubscribeTo(compositionId)
+		if cacheHelper.IsUidInCache(compositionId) {
+			r.handleRequest(c)
+		}
+		return
 	}
-	c.JSON(http.StatusOK, resourceTreeString)
+	c.JSON(http.StatusOK, resourceTreeStatusObj)
 }
 
 func (r *Webservice) Spinup() {

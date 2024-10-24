@@ -1,8 +1,6 @@
-package types
+package apis
 
-import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
+import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 type ResourceTree struct {
 	CompositionId string           `json:"compositionId"`
@@ -61,28 +59,4 @@ type ResourceTreeJson struct {
 
 	Spec   ResourceTreeSpec      `json:"spec,omitempty"`
 	Status []*ResourceNodeStatus `json:"status,omitempty"`
-}
-
-type CompositionReference struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec CompositionReferenceSpec `json:"spec,omitempty"`
-}
-
-type CompositionReferenceSpec struct {
-	Filters Filters `json:"filters"`
-}
-
-type CompositionReferenceStatus struct {
-}
-
-type Filters struct {
-	Exclude []Exclude `json:"exclude"`
-}
-
-type Exclude struct {
-	ApiVersion string `json:"apiVersion"`
-	Resource   string `json:"resource"`
-	Name       string `json:"name"`
 }
