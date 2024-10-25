@@ -70,8 +70,8 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 		return
 	}
 
-	log.Debug().Msgf("event.Reason: %s", event.Reason)
-	log.Debug().Msgf("IsUidInCache(%s): %t", string(event.InvolvedObject.UID), cacheHelper.IsUidInCache(string(event.InvolvedObject.UID)))
+	log.Info().Msgf("Event %s received for composition_id %s", event.Reason, string(event.InvolvedObject.UID))
+	log.Info().Msgf("IsUidInCache(%s): %t", string(event.InvolvedObject.UID), cacheHelper.IsUidInCache(string(event.InvolvedObject.UID)))
 
 	// Composition GVK
 	gr := kubeHelper.InferGroupResource(gv.Group, event.InvolvedObject.Kind)
