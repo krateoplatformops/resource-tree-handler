@@ -42,7 +42,7 @@ type SSE struct {
 const (
 	initialRetryDelay = 1 * time.Second
 	maxRetryDelay     = 30 * time.Second
-	maxRetryAttempts  = 6
+	maxRetryAttempts  = 10
 )
 
 func (r *SSE) Spinup(endpoint string) {
