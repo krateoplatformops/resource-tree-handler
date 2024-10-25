@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
@@ -25,13 +28,22 @@ import (
 
 type SSE struct {
 	Config        *rest.Config
-	connection    map[string]*sse.Connection
-	connMu        sync.Mutex
+	connection    *sse.Connection
 	unsubscribe   map[string]sse.EventCallbackRemover
 	unsubscribeMu sync.Mutex
-	request       *http.Request
 	logger        *zerolog.Logger
+
+	// Connection management
+	isConnected   bool
+	isConnectedMu sync.RWMutex // Mutex for thread-safe access to isConnected
+	ctx           context.Context
 }
+
+const (
+	initialRetryDelay = 1 * time.Second
+	maxRetryDelay     = 30 * time.Second
+	maxRetryAttempts  = 10
+)
 
 func (r *SSE) Spinup(endpoint string) {
 	logger_instance := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).With().Str("Client", "SSE").Logger()
@@ -39,34 +51,76 @@ func (r *SSE) Spinup(endpoint string) {
 	if err != nil {
 		log.Error().Err(err).Msg("error while initializing request with http package")
 	}
-	r.request = req
-	r.connection = make(map[string]*sse.Connection)
+	r.ctx = context.Background()
+	r.connection = sse.DefaultClient.NewConnection(req)
+	r.setConnected(false)
+	go r.maintainConnection()
+
 	r.unsubscribe = make(map[string]sse.EventCallbackRemover)
 	r.logger = &logger_instance
 	logger_instance.Debug().Msg("End of spinup")
 }
 
+func (r *SSE) maintainConnection() {
+	retryAttempt := 0
+	for {
+		r.logger.Debug().Msg("Connection checker loop")
+		r.setConnected(true)
+		err := r.connection.Connect()
+		if err != nil {
+			r.setConnected(false)
+			if errors.Is(err, context.Canceled) {
+				r.logger.Error().Msg("Connection context canceled, stopping reconnection attempts")
+				return
+			}
+
+			retryAttempt++
+			if retryAttempt > maxRetryAttempts {
+				r.logger.Error().Err(fmt.Errorf("maximum number of retry attempts (%d) reached, stopping reconnection attempts", maxRetryAttempts)).Msg("the resource tree will NOT be updated with managed resources' events, use the /refresh endpoint manually to update the resource tree or restart the service")
+				return
+			}
+
+			// Calculate delay with exponential backoff
+			delay := time.Duration(math.Min(
+				float64(initialRetryDelay)*math.Pow(2, float64(retryAttempt-1)),
+				float64(maxRetryDelay),
+			))
+
+			r.logger.Warn().Err(err).Msgf("Connection attempt %d failed. Retrying in %v...", retryAttempt, delay)
+
+			select {
+			case <-r.ctx.Done():
+				return
+			case <-time.After(delay):
+				continue
+			}
+		}
+
+		// Connection successful, reset retry counter
+		retryAttempt = 0
+		r.setConnected(true)
+		r.logger.Info().Msg("Successfully connected to SSE server")
+
+		// Wait for context cancellation before attempting to reconnect
+		<-r.ctx.Done()
+		r.logger.Info().Msg("Connection context done, attempting to reconnect...")
+	}
+}
+
 func (r *SSE) SubscribeTo(compositionId string) {
 	log.Info().Msgf("Subscribing to notificaitons for compositionId %s", compositionId)
-
-	r.connMu.Lock()
-	defer r.connMu.Unlock()
 
 	callback := func(event sse.Event) {
 		sseEventHandlerFunction(event, r.Config, r.logger)
 	}
 
-	r.connection[compositionId] = sse.DefaultClient.NewConnection(r.request)
+	if !r.IsConnected() {
+		log.Warn().Msg("Detected: SSE client not connected. Registering subscription anyway. You might not receive managed resources' events")
+	}
 
 	r.unsubscribeMu.Lock()
-	r.unsubscribe[compositionId] = r.connection[compositionId].SubscribeEvent(compositionId, callback)
+	r.unsubscribe[compositionId] = r.connection.SubscribeEvent(compositionId, callback)
 	r.unsubscribeMu.Unlock()
-
-	go func() {
-		if err := r.connection[compositionId].Connect(); !errors.Is(err, context.Canceled) {
-			r.logger.Error().Err(err).Msgf("error while instantiating conenction to eventsse")
-		}
-	}()
 }
 
 func (r *SSE) UnsubscribeFrom(compositionId string) {
@@ -145,4 +199,16 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, logger *ze
 type Event struct {
 	// The object that this event is about.
 	InvolvedObject corev1.ObjectReference `json:"involvedObject"`
+}
+
+func (r *SSE) IsConnected() bool {
+	r.isConnectedMu.RLock()
+	defer r.isConnectedMu.RUnlock()
+	return r.isConnected
+}
+
+func (r *SSE) setConnected(connected bool) {
+	r.isConnectedMu.Lock()
+	defer r.isConnectedMu.Unlock()
+	r.isConnected = connected
 }
