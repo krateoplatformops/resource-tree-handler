@@ -103,12 +103,12 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 		return
 	}
 
-	if event.Reason == "CompositionCreated" || !cacheHelper.IsUidInCache(string(obj.GetUID())) {
-		log.Info().Msgf("'CompositionCreated' event for composition %s %s %s %s", composition.ApiVersion, composition.Resource, composition.Name, composition.Namespace)
+	if event.Reason == "CompositionCreated" || event.Reason == "CompositionUpdated" || !cacheHelper.IsUidInCache(string(obj.GetUID())) {
+		log.Info().Msgf("'%s' event for composition %s %s %s %s", event.Reason, composition.ApiVersion, composition.Resource, composition.Name, composition.Namespace)
 		// Build resource tree for composition
 		err := resourcetreeHelper.HandleCreate(obj, *composition, r.DynClient)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling CREATE event: %s", err)})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling %s event: %s", event.Reason, err)})
 			return
 		}
 		r.SSE.SubscribeTo(string(obj.GetUID()))
