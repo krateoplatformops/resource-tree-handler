@@ -60,8 +60,10 @@ func IsCompositionReady(resourceTree *apis.ResourceTree) bool {
 		"", "ready", "complete", "healthy", "active", "able",
 	}
 	for _, status := range resourceTree.Resources.Status {
-		if !has(positives, status.Health.Type) {
-			return false
+		if has(positives, status.Health.Type) {
+			if strings.ToLower(status.Health.Status) != "true" {
+				return false
+			}
 		}
 	}
 	return true
