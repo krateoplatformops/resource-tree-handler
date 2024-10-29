@@ -112,7 +112,7 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 		log.Debug().Msgf("error fetching resource status, trying with cluster-scoped %s %s, %s %s, %s %s, %s %s, %s %s, %s %s", "error", err, "group", gvr.Group, "version", gvr.Version, "resource", gvr.Resource, "name", reference.Name, "namespace", reference.Namespace)
 		unstructuredRes, err = dynClient.Resource(gvr).Get(context.TODO(), reference.Name, metav1.GetOptions{})
 		if err != nil {
-			return types.ResourceNode{}, types.ResourceNodeStatus{}, fmt.Errorf("error fetching resource status %s %s, %s %s, %s %s, %s %s, %s %s, %s %s", "error", err, "group", gvr.Group, "version", gvr.Version, "resource", gvr.Resource, "name", reference.Name, "namespace", "")
+			return types.ResourceNode{}, types.ResourceNodeStatus{}, fmt.Errorf("error fetching resource status %v %s, %s %s, %s %s, %s %s, %s %s, %s %s", "error", err, "group", gvr.Group, "version", gvr.Version, "resource", gvr.Resource, "name", reference.Name, "namespace", "")
 		}
 
 	}
