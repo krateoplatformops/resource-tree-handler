@@ -17,6 +17,7 @@ type Reference struct {
 	Resource   string `json:"resource"`
 	Name       string `json:"name"`
 	Namespace  string `json:"namespace"`
+	Kind       string `json:"kind"`
 }
 
 type Health struct {

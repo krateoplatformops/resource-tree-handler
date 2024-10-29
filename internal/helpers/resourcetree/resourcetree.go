@@ -13,10 +13,10 @@ import (
 	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
 )
 
-func GetUidByCompositionReference(composition *types.Reference) string {
-	keys := cacheHelper.ListKeysFromCache()
+func GetUidByCompositionReference(composition *types.Reference, cacheObj *cacheHelper.ThreadSafeCache) string {
+	keys := cacheObj.ListKeysFromCache()
 	for _, compositionId := range keys {
-		resourceTree, ok := cacheHelper.GetResourceTreeFromCache(compositionId)
+		resourceTree, ok := cacheObj.GetResourceTreeFromCache(compositionId)
 		if !ok {
 			return ""
 		}
@@ -30,7 +30,7 @@ func GetUidByCompositionReference(composition *types.Reference) string {
 	return ""
 }
 
-func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, dynClient *dynamic.DynamicClient) error {
+func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, cacheObj *cacheHelper.ThreadSafeCache, dynClient *dynamic.DynamicClient) error {
 	exclude := filtersHelper.Get(dynClient, composition)
 	resourceTree, err := compositionHelper.GetCompositionResourcesStatus(dynClient, obj, composition, exclude)
 	if err != nil {
@@ -38,12 +38,16 @@ func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, d
 		return fmt.Errorf("error while retrieving managed array statuses: %w", err)
 	}
 
-	cacheHelper.AddToCache(resourceTree, string(obj.GetUID()), composition, types.Filters{Exclude: exclude})
+	cacheObj.AddToCache(resourceTree, string(obj.GetUID()), composition, types.Filters{Exclude: exclude})
+	err = compositionHelper.SetCompositionStatus(obj, composition, &resourceTree, dynClient)
+	if err != nil {
+		return fmt.Errorf("error while updating the composition status for composition id %s: %v", string(obj.GetUID()), err)
+	}
 	return nil
 }
 
-func HandleUpdate(newObjectReference types.Reference, newObjectKind string, compositionId string, dynClient *dynamic.DynamicClient) {
-	resourceTree, ok := cacheHelper.GetResourceTreeFromCache(compositionId)
+func HandleUpdate(newObjectReference types.Reference, newObjectKind string, compositionId string, cacheObj *cacheHelper.ThreadSafeCache, dynClient *dynamic.DynamicClient) {
+	resourceTree, ok := cacheObj.GetResourceTreeFromCache(compositionId)
 	if !ok {
 		log.Error().Msgf("resource tree for composition id %s not found", compositionId)
 		return
@@ -75,5 +79,5 @@ func HandleUpdate(newObjectReference types.Reference, newObjectKind string, comp
 		resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status, &resourceNodeJsonStatus)
 	}
 
-	cacheHelper.UpdateCacheEntry(resourceTree.ResourceTree, compositionId, resourceTree.CompositionReference)
+	cacheObj.UpdateCacheEntry(resourceTree.ResourceTree, compositionId, resourceTree.CompositionReference)
 }

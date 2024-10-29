@@ -58,17 +58,6 @@ func GetCompositionResourcesStatus(dynClient *dynamic.DynamicClient, obj *unstru
 	managedResourceList = append(managedResourceList, compositionReference)
 
 	for _, managedResource := range managedResourceList {
-		skip := false
-		for _, exclude := range excludes {
-			if ShouldItSkip(exclude, managedResource) {
-				skip = true
-				break
-			}
-		}
-		if skip {
-			continue
-		}
-
 		resourceNodeJsonSpec, resourceNodeJsonStatus, err := GetObjectStatus(dynClient, managedResource, compositionReference)
 		if err != nil {
 			log.Warn().Err(err).Msg("error retrieving object status, continuing...")
