@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func New(rc *rest.Config) (*dynamic.DynamicClient, error) {
+func NewDynamicClient(rc *rest.Config) (*dynamic.DynamicClient, error) {
 	config := *rc
 	config.APIPath = "/api"
 	config.NegotiatedSerializer = serializer.NewCodecFactory(scheme.Scheme)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	cacheHelper "resource-tree-handler/internal/cache"
 	parser "resource-tree-handler/internal/helpers/configuration"
 	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
 	"resource-tree-handler/internal/ssemanager"
@@ -40,16 +41,20 @@ func main() {
 		return
 	}
 
-	dynClient, err := kubeHelper.New(config)
+	dynClient, err := kubeHelper.NewDynamicClient(config)
 	if err != nil {
 		log.Error().Err(err).Msg("obtaining dynamic client for kubernetes")
 		return
 	}
 
+	// Initialize cache object
+	cache := cacheHelper.NewThreadSafeCache()
+
 	// Start client to receive SSE events from eventsse
 	log.Info().Msgf("starting SSE client on %s", configuration.SSEUrl)
 	sse := &ssemanager.SSE{
 		Config: config,
+		Cache:  cache,
 	}
 	sse.Spinup(configuration.SSEUrl) // only initialization and go routines, non-blocking
 
@@ -57,6 +62,7 @@ func main() {
 	w := webservice.Webservice{
 		Config:         config,
 		WebservicePort: configuration.WebServicePort,
+		Cache:          cache,
 		DynClient:      dynClient,
 		SSE:            sse,
 	}

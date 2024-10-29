@@ -32,6 +32,7 @@ type SSE struct {
 	unsubscribe   map[string]sse.EventCallbackRemover
 	unsubscribeMu sync.Mutex
 	logger        *zerolog.Logger
+	Cache         *cacheHelper.ThreadSafeCache
 
 	// Connection management
 	isConnected   bool
@@ -111,7 +112,7 @@ func (r *SSE) SubscribeTo(compositionId string) {
 	log.Info().Msgf("Subscribing to notificaitons for compositionId %s", compositionId)
 
 	callback := func(event sse.Event) {
-		sseEventHandlerFunction(event, r.Config, r.logger)
+		sseEventHandlerFunction(event, r.Config, r.Cache, r.logger)
 	}
 
 	if !r.IsConnected() {
@@ -134,9 +135,9 @@ func (r *SSE) UnsubscribeFrom(compositionId string) {
 	r.unsubscribeMu.Unlock()
 }
 
-func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, logger *zerolog.Logger) {
+func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *cacheHelper.ThreadSafeCache, logger *zerolog.Logger) {
 	logger.Info().Msgf("Function callback for event %s", eventObj.LastEventID)
-	dynClient, err := kubeHelper.New(config)
+	dynClient, err := kubeHelper.NewDynamicClient(config)
 	if err != nil {
 		logger.Error().Err(err).Msgf("there was an error obtaining the dynamic client")
 		return
@@ -157,6 +158,7 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, logger *ze
 	gr := kubeHelper.InferGroupResource(gv.Group, event.InvolvedObject.Kind)
 	objectReference := &types.Reference{
 		ApiVersion: event.InvolvedObject.APIVersion,
+		Kind:       event.InvolvedObject.Kind,
 		Resource:   gr.Resource,
 		Name:       event.InvolvedObject.Name,
 		Namespace:  event.InvolvedObject.Namespace,
@@ -168,10 +170,10 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, logger *ze
 		return
 	}
 	labels := objectUnstructured.GetLabels()
-	for _, compositionId := range cacheHelper.ListKeysFromCache() {
+	for _, compositionId := range cacheObj.ListKeysFromCache() {
 		if label, ok := labels["krateo.io/composition-id"]; ok {
 			if label == compositionId {
-				resourceTree, ok := cacheHelper.GetResourceTreeFromCache(compositionId)
+				resourceTree, ok := cacheObj.GetResourceTreeFromCache(compositionId)
 				if !ok {
 					logger.Error().Err(err).Msgf("could not obtain resource tree for compositionId: %s", compositionId)
 					return
@@ -180,7 +182,7 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, logger *ze
 				// If the filters did not change, then update the resource tree entry
 				if filtersHelper.CompareFilters(types.Filters{Exclude: exclude}, resourceTree.Filters) {
 					logger.Info().Msgf("Handling object update for object %s %s %s %s and composition id %s", objectReference.Resource, objectReference.ApiVersion, objectReference.Name, objectReference.Namespace, compositionId)
-					resourcetreeHelper.HandleUpdate(*objectReference, event.InvolvedObject.Kind, compositionId, dynClient)
+					resourcetreeHelper.HandleUpdate(*objectReference, event.InvolvedObject.Kind, compositionId, cacheObj, dynClient)
 				} else { // If the filters did change, then rebuild the entire resource tree
 					logger.Info().Msgf("Filter update detected, updating resource tree for composition id %s", compositionId)
 					compositionUnstructured, err := kubeHelper.GetObj(context.TODO(), &resourceTree.CompositionReference, dynClient)
@@ -188,7 +190,7 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, logger *ze
 						logger.Error().Err(err).Msgf("retrieving composition object")
 						return
 					}
-					resourcetreeHelper.HandleCreate(compositionUnstructured, resourceTree.CompositionReference, dynClient)
+					resourcetreeHelper.HandleCreate(compositionUnstructured, resourceTree.CompositionReference, cacheObj, dynClient)
 				}
 			}
 		}

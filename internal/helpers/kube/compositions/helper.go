@@ -130,9 +130,16 @@ func GetCompositionById(compositionId string, dynClient *dynamic.DynamicClient, 
 					if err != nil {
 						return nil, nil, fmt.Errorf("could not parse group version: %v", err)
 					}
-
+					conditions, ok, err := unstructured.NestedSlice(item.Object, "status", "conditions")
+					if !ok {
+						return nil, nil, fmt.Errorf("could not get status.Reason of composition %s: %v", compositionId, err)
+					}
+					if conditions[0].(map[string]interface{})["reason"].(string) == "Creating" {
+						return nil, nil, fmt.Errorf("composition is creating")
+					}
 					ref := &types.Reference{
 						ApiVersion: item.GetAPIVersion(),
+						Kind:       item.GetKind(),
 						Resource:   kubeHelper.InferGroupResource(gv.Group, item.GetKind()).Resource,
 						Name:       item.GetName(),
 						Namespace:  item.GetNamespace(),
