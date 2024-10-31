@@ -150,7 +150,7 @@ func (r *Webservice) handleRefresh(c *gin.Context) {
 	if err != nil {
 		log.Error().Err(err).Msg("retrieving object")
 	}
-	exclude := filtersHelper.Get(r.DynClient, *reference)
+	exclude := filtersHelper.GetFilters(r.DynClient, *reference)
 	if r.continueOperationsWithComposition(compositionId) {
 		r.setContinueOperationsWithComposition(compositionId, busyString)
 		resourceTree, err := compositionHelper.GetCompositionResourcesStatus(r.DynClient, obj, *reference, exclude)

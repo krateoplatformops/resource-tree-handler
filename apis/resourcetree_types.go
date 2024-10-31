@@ -3,8 +3,9 @@ package apis
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 type ResourceTree struct {
-	CompositionId string           `json:"compositionId"`
-	Resources     ResourceTreeJson `json:"resources"`
+	CompositionId     string              `json:"compositionId"`
+	RootElementStatus *ResourceNodeStatus `json:"rootElementStatus"`
+	Resources         ResourceTreeJson    `json:"resources"`
 }
 
 type ResourceNode struct {

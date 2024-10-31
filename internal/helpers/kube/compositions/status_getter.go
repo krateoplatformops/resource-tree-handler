@@ -13,14 +13,37 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	types "resource-tree-handler/apis"
+	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
 )
 
 func GetCompositionResourcesStatus(dynClient *dynamic.DynamicClient, obj *unstructured.Unstructured, compositionReference types.Reference, excludes []types.Exclude) (types.ResourceTree, error) {
+	// Get the resource tree root element: CompositionReference, through labels
+	_, unstructuredCompositionReference, err := filtersHelper.GetCompositionReference(dynClient, compositionReference)
+	if err != nil {
+		return types.ResourceTree{}, fmt.Errorf("could not obtain CompositionReference while building resource tree: %w", err)
+	}
+	compositionReference_reference := &types.Reference{
+		ApiVersion: "resourcetrees.krateo.io/v1",
+		Kind:       "CompositionReference",
+		Resource:   "compositionreferences",
+		Name:       unstructuredCompositionReference.GetName(),
+		Namespace:  unstructuredCompositionReference.GetNamespace(),
+	}
+	compositionReference_referenceJsonSpec, compositionReference_referenceJsonStatus, err := GetObjectStatus(dynClient, *compositionReference_reference, compositionReference, types.Reference{}, &types.ResourceNodeStatus{})
+	if err != nil {
+		return types.ResourceTree{}, fmt.Errorf("could not obtain CompositionReference status while building resource tree: %w", err)
+	}
+
+	// Create data structures
 	resourceTreeJson := types.ResourceTreeJson{}
 	resourceTreeJson.CreationTimestamp = metav1.Now()
 
 	resourceTreeJson.Spec.Tree = make([]types.ResourceNode, 0)
 	resourceTreeJson.Status = make([]*types.ResourceNodeStatus, 0)
+
+	// Assign root element
+	resourceTreeJson.Spec.Tree = append(resourceTreeJson.Spec.Tree, compositionReference_referenceJsonSpec)
+	resourceTreeJson.Status = append(resourceTreeJson.Status, compositionReference_referenceJsonStatus)
 
 	status, found, err := unstructured.NestedMap(obj.Object, "status")
 	if err != nil {
@@ -58,47 +81,28 @@ func GetCompositionResourcesStatus(dynClient *dynamic.DynamicClient, obj *unstru
 	managedResourceList = append(managedResourceList, compositionReference)
 
 	for _, managedResource := range managedResourceList {
-		resourceNodeJsonSpec, resourceNodeJsonStatus, err := GetObjectStatus(dynClient, managedResource, compositionReference)
+		resourceNodeJsonSpec, resourceNodeJsonStatus, err := GetObjectStatus(dynClient, managedResource, compositionReference, *compositionReference_reference, compositionReference_referenceJsonStatus)
 		if err != nil {
 			log.Warn().Err(err).Msg("error retrieving object status, continuing...")
 			continue
 		}
 
 		resourceTreeJson.Spec.Tree = append(resourceTreeJson.Spec.Tree, resourceNodeJsonSpec)
-		resourceTreeJson.Status = append(resourceTreeJson.Status, &resourceNodeJsonStatus)
-	}
-
-	compositionStatus := &types.ResourceNodeStatus{}
-	skipValue := -1
-	// Find the composition in the resourceTreeJson.Status
-	// Copy its pointer and position
-	for i, status := range resourceTreeJson.Status {
-		if obj.GetKind() == status.Kind && obj.GetAPIVersion() == status.Version {
-			skipValue = i
-			compositionStatus = status
-			break
-		}
-	}
-
-	// Add the composition status to each resourceTreeJson.Status, except the one of the composition
-	for i := range resourceTreeJson.Status {
-		if skipValue != i {
-			resourceTreeJson.Status[i].ParentRefs = append(resourceTreeJson.Status[i].ParentRefs, compositionStatus)
-		}
-
+		resourceTreeJson.Status = append(resourceTreeJson.Status, resourceNodeJsonStatus)
 	}
 
 	resourceTree := types.ResourceTree{
-		CompositionId: string(obj.GetUID()),
-		Resources:     resourceTreeJson,
+		CompositionId:     string(obj.GetUID()),
+		Resources:         resourceTreeJson,
+		RootElementStatus: compositionReference_referenceJsonStatus,
 	}
 	return resourceTree, nil
 }
 
-func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference, compositionReference types.Reference) (types.ResourceNode, types.ResourceNodeStatus, error) {
+func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference, compositionReference types.Reference, rootSpecReference types.Reference, rootStatusReference *types.ResourceNodeStatus) (types.ResourceNode, *types.ResourceNodeStatus, error) {
 	gv, err := schema.ParseGroupVersion(reference.ApiVersion)
 	if err != nil {
-		return types.ResourceNode{}, types.ResourceNodeStatus{}, fmt.Errorf("could not parse Group/Version of managed resource: %w", err)
+		return types.ResourceNode{}, &types.ResourceNodeStatus{}, fmt.Errorf("could not parse Group/Version of managed resource: %w", err)
 	}
 
 	gvr := schema.GroupVersionResource{
@@ -112,7 +116,7 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 		log.Debug().Msgf("error fetching resource status, trying with cluster-scoped %s %s, %s %s, %s %s, %s %s, %s %s, %s %s", "error", err, "group", gvr.Group, "version", gvr.Version, "resource", gvr.Resource, "name", reference.Name, "namespace", reference.Namespace)
 		unstructuredRes, err = dynClient.Resource(gvr).Get(context.TODO(), reference.Name, metav1.GetOptions{})
 		if err != nil {
-			return types.ResourceNode{}, types.ResourceNodeStatus{}, fmt.Errorf("error fetching resource status %v %s, %s %s, %s %s, %s %s, %s %s, %s %s", "error", err, "group", gvr.Group, "version", gvr.Version, "resource", gvr.Resource, "name", reference.Name, "namespace", "")
+			return types.ResourceNode{}, &types.ResourceNodeStatus{}, fmt.Errorf("error fetching resource status %v %s, %s %s, %s %s, %s %s, %s %s, %s %s", "error", err, "group", gvr.Group, "version", gvr.Version, "resource", gvr.Resource, "name", reference.Name, "namespace", "")
 		}
 
 	}
@@ -143,9 +147,9 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 	resourceNodeJsonSpec.Resource = reference.Resource
 	resourceNodeJsonSpec.Name = reference.Name
 	resourceNodeJsonSpec.Namespace = reference.Namespace
-	resourceNodeJsonSpec.ParentRefs = []types.Reference{compositionReference}
+	resourceNodeJsonSpec.ParentRefs = []types.Reference{rootSpecReference}
 
-	resourceNodeJsonStatus := types.ResourceNodeStatus{}
+	resourceNodeJsonStatus := &types.ResourceNodeStatus{}
 	time := unstructuredRes.GetCreationTimestamp()
 	resourceNodeJsonStatus.CreatedAt = &time
 	resourceNodeJsonStatus.Kind = unstructuredRes.GetKind()
@@ -157,7 +161,7 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 	resourceNodeJsonStatus.UID = &uidString
 	resourceVersionString := unstructuredRes.GetResourceVersion()
 	resourceNodeJsonStatus.ResourceVersion = &resourceVersionString
-	resourceNodeJsonStatus.ParentRefs = []*types.ResourceNodeStatus{}
+	resourceNodeJsonStatus.ParentRefs = []*types.ResourceNodeStatus{rootStatusReference}
 
 	return resourceNodeJsonSpec, resourceNodeJsonStatus, nil
 }
