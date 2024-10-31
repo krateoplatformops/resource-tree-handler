@@ -147,7 +147,15 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 	resourceNodeJsonSpec.Resource = reference.Resource
 	resourceNodeJsonSpec.Name = reference.Name
 	resourceNodeJsonSpec.Namespace = reference.Namespace
-	resourceNodeJsonSpec.ParentRefs = []types.Reference{rootSpecReference}
+	skipParent := false
+	if resourceNodeJsonSpec.Resource == rootSpecReference.Resource &&
+		resourceNodeJsonSpec.APIVersion == rootSpecReference.ApiVersion &&
+		resourceNodeJsonSpec.Name == rootSpecReference.Name &&
+		resourceNodeJsonSpec.Namespace == rootSpecReference.Namespace {
+		skipParent = true
+	} else {
+		resourceNodeJsonSpec.ParentRefs = []types.Reference{rootSpecReference}
+	}
 
 	resourceNodeJsonStatus := &types.ResourceNodeStatus{}
 	time := unstructuredRes.GetCreationTimestamp()
@@ -161,7 +169,9 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 	resourceNodeJsonStatus.UID = &uidString
 	resourceVersionString := unstructuredRes.GetResourceVersion()
 	resourceNodeJsonStatus.ResourceVersion = &resourceVersionString
-	resourceNodeJsonStatus.ParentRefs = []*types.ResourceNodeStatus{rootStatusReference}
+	if !skipParent {
+		resourceNodeJsonStatus.ParentRefs = []*types.ResourceNodeStatus{rootStatusReference}
+	}
 
 	return resourceNodeJsonSpec, resourceNodeJsonStatus, nil
 }
