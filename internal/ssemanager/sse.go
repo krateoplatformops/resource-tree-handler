@@ -178,7 +178,7 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *
 					logger.Error().Err(err).Msgf("could not obtain resource tree for compositionId: %s", compositionId)
 					return
 				}
-				exclude := filtersHelper.Get(dynClient, resourceTree.CompositionReference)
+				exclude := filtersHelper.GetFilters(dynClient, resourceTree.CompositionReference)
 				// If the filters did not change, then update the resource tree entry
 				if filtersHelper.CompareFilters(types.Filters{Exclude: exclude}, resourceTree.Filters) {
 					logger.Info().Msgf("Handling object update for object %s %s %s %s and composition id %s", objectReference.Resource, objectReference.ApiVersion, objectReference.Name, objectReference.Namespace, compositionId)

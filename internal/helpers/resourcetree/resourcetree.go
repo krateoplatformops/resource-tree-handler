@@ -33,18 +33,19 @@ func GetUidByCompositionReference(composition *types.Reference, cacheObj *cacheH
 }
 
 func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, cacheObj *cacheHelper.ThreadSafeCache, dynClient *dynamic.DynamicClient) error {
-	exclude := filtersHelper.Get(dynClient, composition)
+	exclude := filtersHelper.GetFilters(dynClient, composition)
 	resourceTree, err := compositionHelper.GetCompositionResourcesStatus(dynClient, obj, composition, exclude)
 	if err != nil {
 		log.Error().Err(err).Msg("retrieving managed array statuses")
 		return fmt.Errorf("error while retrieving managed array statuses: %w", err)
 	}
 
-	cacheObj.AddToCache(resourceTree, string(obj.GetUID()), composition, types.Filters{Exclude: exclude})
-	err = compositionHelper.SetCompositionStatus(obj, composition, &resourceTree, dynClient)
+	err = compositionHelper.SetCompositionReferenceStatus(obj, composition, &resourceTree, dynClient)
 	if err != nil {
 		return fmt.Errorf("error while updating the composition status for composition id %s: %v", string(obj.GetUID()), err)
 	}
+
+	cacheObj.AddToCache(resourceTree, string(obj.GetUID()), composition, types.Filters{Exclude: exclude})
 	return nil
 }
 
@@ -57,7 +58,21 @@ func HandleUpdate(newObjectReference types.Reference, newObjectKind string, comp
 
 	log.Info().Msgf("Update event for object %s %s %s %s in composition_id %s", newObjectReference.ApiVersion, newObjectReference.Resource, newObjectReference.Name, newObjectReference.Namespace, compositionId)
 
-	resourceNodeJsonSpec, resourceNodeJsonStatus, err := compositionHelper.GetObjectStatus(dynClient, newObjectReference, resourceTree.CompositionReference)
+	// Get the resource tree root element: CompositionReference, through labels
+	_, unstructuredCompositionReference, err := filtersHelper.GetCompositionReference(dynClient, resourceTree.CompositionReference)
+	if err != nil {
+		log.Error().Err(err).Msg("could not obtain CompositionReference while building resource tree")
+		return
+	}
+	compositionReference_reference := types.Reference{
+		ApiVersion: "resourcetrees.krateo.io/v1",
+		Kind:       "CompositionReference",
+		Resource:   "compositionreferences",
+		Name:       unstructuredCompositionReference.GetName(),
+		Namespace:  unstructuredCompositionReference.GetNamespace(),
+	}
+
+	resourceNodeJsonSpec, resourceNodeJsonStatus, err := compositionHelper.GetObjectStatus(dynClient, newObjectReference, resourceTree.CompositionReference, compositionReference_reference, resourceTree.ResourceTree.RootElementStatus)
 	if err != nil {
 		log.Error().Err(err).Msg("error retrieving object status")
 		return
@@ -87,22 +102,13 @@ func HandleUpdate(newObjectReference types.Reference, newObjectKind string, comp
 			// Delete old object from status array
 			resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status[:i], resourceTree.ResourceTree.Resources.Status[i+1:]...)
 			// Append new object to status array
-			resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status, &resourceNodeJsonStatus)
+			resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status, resourceNodeJsonStatus)
 
 			found = true
 		}
 	}
 	if !found {
-		compositionStatus := &types.ResourceNodeStatus{}
-		// Find the composition in the resourceTreeJson.Status and copy its pointer
-		for _, status := range resourceTree.ResourceTree.Resources.Status {
-			if resourceTree.CompositionReference.Kind == status.Kind && resourceTree.CompositionReference.ApiVersion == status.Version {
-				compositionStatus = status
-				break
-			}
-		}
-		resourceNodeJsonStatus.ParentRefs = append(resourceNodeJsonStatus.ParentRefs, compositionStatus)
-		resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status, &resourceNodeJsonStatus)
+		resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status, resourceNodeJsonStatus)
 	}
 
 	cacheObj.UpdateCacheEntry(resourceTree.ResourceTree, compositionId, resourceTree.CompositionReference)
@@ -113,7 +119,7 @@ func HandleUpdate(newObjectReference types.Reference, newObjectKind string, comp
 		return
 	}
 
-	err = compositionHelper.SetCompositionStatus(compositionUnstructured, resourceTree.CompositionReference, &resourceTree.ResourceTree, dynClient)
+	err = compositionHelper.SetCompositionReferenceStatus(compositionUnstructured, resourceTree.CompositionReference, &resourceTree.ResourceTree, dynClient)
 	if err != nil {
 		log.Error().Err(err).Msgf("error while updating the composition status for composition id %s (update)", compositionId)
 	}
