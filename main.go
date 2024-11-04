@@ -24,15 +24,17 @@ func main() {
 	zerolog.SetGlobalLevel(configuration.DebugLevel)
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
+	if err != nil {
+		log.Error().Err(err).Msg("configuration missing")
+		log.Info().Msg("using default configuration for webservice")
+	}
+
 	log.Debug().Msg("List of environment variables:")
 	for _, s := range os.Environ() {
 		log.Debug().Msg(s)
 	}
 
-	if err != nil {
-		log.Error().Err(err).Msg("configuration missing")
-		log.Info().Msg("using default configuration for webservice")
-	}
+	kubeHelper.PLURALIZER_URL = configuration.PluralizerUrl
 
 	// Kubernetes configuration
 	config, err := rest.InClusterConfig()

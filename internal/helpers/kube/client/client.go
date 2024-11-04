@@ -2,9 +2,13 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
+	"io"
+	"net/http"
+	"net/url"
 
+	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -12,13 +16,12 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 
-	"k8s.io/gengo/namer"
-	"k8s.io/gengo/types"
-
 	api_types "resource-tree-handler/apis"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+var PLURALIZER_URL = ""
 
 func NewDynamicClient(rc *rest.Config) (*dynamic.DynamicClient, error) {
 	config := *rc
@@ -49,24 +52,55 @@ func GetObj(ctx context.Context, cr *api_types.Reference, dynClient *dynamic.Dyn
 	return res, nil
 }
 
-func InferGroupResource(g, k string) schema.GroupResource {
-	gk := schema.GroupKind{
-		Group: g,
-		Kind:  k,
+func InferGroupResource(a, k string) schema.GroupResource {
+	gv, err := schema.ParseGroupVersion(a)
+	if err != nil {
+		log.Error().Err(err).Msg("could not parse apiVersion for pluralizer")
+		return schema.GroupResource{}
 	}
 
-	// The namer does not work with the kind "Repo" with plural resources "repoes"
-	if (g == "git.krateo.io" || g == "github.krateo.io") && k == "Repo" {
-		return schema.GroupResource{
-			Group:    gk.Group,
-			Resource: "repoes",
-		}
+	req, err := http.NewRequest("GET", PLURALIZER_URL, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("could not create request for pluralizer")
+		return schema.GroupResource{}
 	}
 
-	kind := types.Type{Name: types.Name{Name: gk.Kind}}
-	namer := namer.NewPrivatePluralNamer(nil)
+	data := url.Values{}
+	data.Set("apiVersion", a)
+	data.Set("kind", k)
+
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Error().Err(err).Msg("could not make request to pluralizer")
+		return schema.GroupResource{}
+	}
+
+	if response.StatusCode != http.StatusOK {
+		log.Error().Err(fmt.Errorf("pluralizer status: %s", response.Status)).Msg("pluralizer response not 200")
+		return schema.GroupResource{}
+	}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("could not read body of pluralizer response")
+		return schema.GroupResource{}
+	}
+
+	var plurals names
+	err = json.Unmarshal(body, &plurals)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to unmarshal pluralizer response")
+		return schema.GroupResource{}
+	}
+
 	return schema.GroupResource{
-		Group:    gk.Group,
-		Resource: strings.ToLower(namer.Name(&kind)),
+		Resource: plurals.Plural,
+		Group:    gv.Group,
 	}
+}
+
+type names struct {
+	Plural   string   `json:"plural"`
+	Singular string   `json:"singular"`
+	Shorts   []string `json:"shorts"`
 }

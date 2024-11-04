@@ -20,6 +20,7 @@ import (
 type Configuration struct {
 	WebServicePort int           `json:"webServicePort" yaml:"webServicePort"`
 	SSEUrl         string        `json:"sseURL" yaml:"sseURL"`
+	PluralizerUrl  string        `json:"pluralizerUrl" yaml:"pluralizerUrl"`
 	DebugLevel     zerolog.Level `json:"debugLevel" yaml:"debugLevel"`
 	// EtcdAddress    string `json:"etcdAddress" yaml:"etcdAddress"`
 	// EtcdPort       string `json:"etcdPort" yaml:"etcdPort"`
@@ -43,6 +44,11 @@ func ParseConfig() (Configuration, error) {
 		return Configuration{}, fmt.Errorf("SSE URL cannot be empty")
 	}
 
+	pluralizerUrl := os.Getenv("URL_PLURALS")
+	if pluralizerUrl == "" {
+		return Configuration{}, fmt.Errorf("pluralizer URL cannot be empty")
+	}
+
 	debugLevel := zerolog.InfoLevel
 	switch strings.ToLower(os.Getenv("DEBUG_LEVEL")) {
 	case "debug":
@@ -55,6 +61,7 @@ func ParseConfig() (Configuration, error) {
 	return Configuration{
 		WebServicePort: port,
 		SSEUrl:         sseUrl,
+		PluralizerUrl:  pluralizerUrl,
 		DebugLevel:     debugLevel,
 	}, nil
 }

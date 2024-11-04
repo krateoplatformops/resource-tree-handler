@@ -81,7 +81,7 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 	log.Info().Msgf("IsUidInCache(%s): %t", string(event.InvolvedObject.UID), r.Cache.IsUidInCache(string(event.InvolvedObject.UID)))
 
 	// Composition GVK
-	gr := kubeHelper.InferGroupResource(gv.Group, event.InvolvedObject.Kind)
+	gr := kubeHelper.InferGroupResource(event.InvolvedObject.APIVersion, event.InvolvedObject.Kind)
 	composition := &types.Reference{
 		ApiVersion: event.InvolvedObject.APIVersion,
 		Kind:       event.InvolvedObject.Kind,
