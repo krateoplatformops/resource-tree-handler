@@ -126,10 +126,6 @@ func GetCompositionById(compositionId string, dynClient *dynamic.DynamicClient, 
 			// Search for the object with matching UID
 			for _, item := range list.Items {
 				if string(item.GetUID()) == compositionId {
-					gv, err := schema.ParseGroupVersion(item.GetAPIVersion())
-					if err != nil {
-						return nil, nil, fmt.Errorf("could not parse group version: %v", err)
-					}
 					conditions, ok, err := unstructured.NestedSlice(item.Object, "status", "conditions")
 					if !ok {
 						return nil, nil, fmt.Errorf("could not get status.Reason of composition %s: %v", compositionId, err)
@@ -140,7 +136,7 @@ func GetCompositionById(compositionId string, dynClient *dynamic.DynamicClient, 
 					ref := &types.Reference{
 						ApiVersion: item.GetAPIVersion(),
 						Kind:       item.GetKind(),
-						Resource:   kubeHelper.InferGroupResource(gv.Group, item.GetKind()).Resource,
+						Resource:   kubeHelper.InferGroupResource(item.GetAPIVersion(), item.GetKind()).Resource,
 						Name:       item.GetName(),
 						Namespace:  item.GetNamespace(),
 					}

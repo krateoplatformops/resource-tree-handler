@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 
 	types "resource-tree-handler/apis"
@@ -149,13 +148,8 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *
 		logger.Error().Err(err).Msgf("there was an error unmarshaling the event %s", eventObj.Data)
 		return
 	}
-	gv, err := schema.ParseGroupVersion(event.InvolvedObject.APIVersion)
-	if err != nil {
-		logger.Error().Err(err).Msgf("could not parse Group Version from ApiVersion")
-		return
-	}
 
-	gr := kubeHelper.InferGroupResource(gv.Group, event.InvolvedObject.Kind)
+	gr := kubeHelper.InferGroupResource(event.InvolvedObject.APIVersion, event.InvolvedObject.Kind)
 	objectReference := &types.Reference{
 		ApiVersion: event.InvolvedObject.APIVersion,
 		Kind:       event.InvolvedObject.Kind,

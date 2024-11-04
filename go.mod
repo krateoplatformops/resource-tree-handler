@@ -9,7 +9,6 @@ require (
 	k8s.io/api v0.31.1
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
-	k8s.io/gengo v0.0.0-20240911193312-2b36238f13e9
 )
 
 require (

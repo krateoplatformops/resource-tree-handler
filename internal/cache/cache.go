@@ -5,8 +5,6 @@ import (
 	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
 	compositionHelper "resource-tree-handler/internal/helpers/kube/compositions"
 	"time"
-
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 type ResourceTreeUpdate struct {
@@ -160,8 +158,7 @@ func (c *ThreadSafeCache) GetJSONFromCache(compositionId string) ([]*types.Resou
 		excludes := result.status.Filters.Exclude
 		for _, managedResource := range result.status.ResourceTree.Resources.Status {
 			skip := false
-			gv, _ := schema.ParseGroupVersion(managedResource.Version)
-			gr := kubeHelper.InferGroupResource(gv.Group, managedResource.Kind)
+			gr := kubeHelper.InferGroupResource(managedResource.Version, managedResource.Kind)
 			reference := types.Reference{
 				ApiVersion: managedResource.Version,
 				Kind:       managedResource.Kind,
