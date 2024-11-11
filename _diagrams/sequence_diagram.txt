@@ -26,6 +26,7 @@ Kubernetes -> "resource-tree-handler"
 note left: filters and statuses
 hnote over "resource-tree-handler": create resource \ntree json status
 "resource-tree-handler" -> db : create and store\nresource tree
+hnote over "resource-tree-handler": update status\nof CompositionReference\nwith composition status
 else ApiVersion != compositions.krateo.io
 hnote over "resource-tree-handler": idle
 end
@@ -45,6 +46,7 @@ Kubernetes -> "resource-tree-handler"
 note left: filters and 'event'\nresource status
 hnote over "resource-tree-handler": update resource \ntree json status\nfor 'event' resource\n**only**
 "resource-tree-handler" -> db : store resource tree
+hnote over "resource-tree-handler": update status\nof CompositionReference\nwith composition status
 
 == FRONTEND ==
 
