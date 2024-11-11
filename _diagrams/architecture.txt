@@ -11,9 +11,10 @@ package "resource-tree-handler" {
   object SSE_Client {
   /notifications - topic: <composition_id
   }
+  component status_updater
 }
 
-package configMapType {
+package CompositionReference {
   component filters
   object labels {
   apiVersion
@@ -21,7 +22,11 @@ package configMapType {
   name
   namespace
   }
+  
+  component status
 }
+
+CompositionReference <-- POST : filter by labels
 
 database db
 
@@ -38,8 +43,10 @@ component frontend
 GET --> db : retrieve resource\ntree json status
 POST --> db : store resource\ntree json status
 POST --> composition : get managed array 
-configMapType <-- POST : filter by labels
 
 SSE_Client <-- eventsse  : events with <composition_id>
 eventrouter --> POST : all events
 frontend -> GET
+
+
+status_updater -> status
