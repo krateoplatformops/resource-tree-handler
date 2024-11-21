@@ -68,6 +68,7 @@ func InferGroupResource(a, k string) schema.GroupResource {
 	data := url.Values{}
 	data.Set("apiVersion", a)
 	data.Set("kind", k)
+	req.URL.RawQuery = data.Encode()
 
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
