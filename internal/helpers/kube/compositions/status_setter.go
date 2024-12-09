@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
@@ -25,16 +26,17 @@ func SetCompositionReferenceStatus(compositionObj *unstructured.Unstructured, co
 		return fmt.Errorf("could not obtain compositionReference: %v", err)
 	}
 
-	isReady := IsCompositionReady(resourceTree)
-	status := cases.Title(language.English, cases.Compact).String(strconv.FormatBool(isReady))
+	isReady, message := IsCompositionReady(resourceTree)
+	log.Info().Msgf("Composition %s status %t", compositionReference.Name, isReady)
+	status := cases.Title(language.English, cases.NoLower).String(strconv.FormatBool(isReady))
 
 	unstructured.SetNestedSlice(unstructuredCompositionReference.Object, []interface{}{
 		map[string]interface{}{
 			"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
-			"message":            "",
+			"message":            message,
 			"reason":             "Available",
 			"status":             status,
-			"type":               "Ready",
+			"type":               "CompositionStatus",
 		},
 	}, "status", "conditions")
 
@@ -70,18 +72,22 @@ func SetCompositionReferenceStatus(compositionObj *unstructured.Unstructured, co
 
 }
 
-func IsCompositionReady(resourceTree *types.ResourceTree) bool {
+func IsCompositionReady(resourceTree *types.ResourceTree) (bool, string) {
 	positives := []string{
 		"", "ready", "complete", "healthy", "active", "able",
 	}
 	for _, status := range resourceTree.Resources.Status {
+		log.Info().Msgf("resource %s health type %s value %s", status.Kind, status.Health.Type, status.Health.Status)
+		if status.Kind == "CompositionReference" {
+			continue
+		}
 		if has(positives, status.Health.Type) {
-			if strings.ToLower(status.Health.Status) != "true" {
-				return false
+			if strings.ToLower(status.Health.Status) != "true" && status.Health.Type != "" {
+				return false, fmt.Sprintf("Kind: %s - Name: %s - Namespace: %s - Message: %s", status.Kind, status.Name, status.Namespace, status.Health.Message)
 			}
 		}
 	}
-	return true
+	return true, ""
 }
 
 func has(s []string, str string) bool {

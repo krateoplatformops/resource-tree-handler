@@ -13,6 +13,13 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
+const (
+	compositionGroup     = "krateo.io/composition-group"
+	compositionVersion   = "krateo.io/composition-version"
+	compositionName      = "krateo.io/composition-name"
+	compositionNamespace = "krateo.io/composition-namespace"
+)
+
 func GetCompositionReference(dynClient *dynamic.DynamicClient, composition types.Reference) (*types.CompositionReference, *unstructured.Unstructured, error) {
 	gvr := schema.GroupVersionResource{
 		Group:    "resourcetrees.krateo.io",
@@ -26,10 +33,14 @@ func GetCompositionReference(dynClient *dynamic.DynamicClient, composition types
 	}
 
 	labels := fmt.Sprintf(
-		"krateo.io/composition-group=%s,krateo.io/composition-version=%s,krateo.io/composition-name=%s,krateo.io/composition-namespace=%s",
+		"%s=%s,%s=%s,%s=%s,%s=%s",
+		compositionGroup,
 		gv.Group,
+		compositionVersion,
 		gv.Version,
+		compositionName,
 		composition.Name,
+		compositionNamespace,
 		composition.Namespace,
 	)
 
