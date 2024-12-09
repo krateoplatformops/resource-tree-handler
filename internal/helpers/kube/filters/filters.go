@@ -15,7 +15,7 @@ import (
 
 const (
 	compositionGroup     = "krateo.io/composition-group"
-	compositionVersion   = "krateo.io/composition-version"
+	compositionVersion   = "krateo.io/composition-installed-version"
 	compositionName      = "krateo.io/composition-name"
 	compositionNamespace = "krateo.io/composition-namespace"
 )
