@@ -51,7 +51,7 @@ This CR is automatically installed by the [HELM chart](http://github.com/krateop
 
 To filter objects from the resource tree, you should use the CompositionReferece Custom Resource Definition. To map the custom resource to the composition, four labels need to be added with the information of the composition:
  - `krateo.io/composition-group`
- - `krateo.io/composition-version`
+ - `krateo.io/composition-installed-version`
  - `krateo.io/composition-namespace`
  - `krateo.io/composition-name`
 
