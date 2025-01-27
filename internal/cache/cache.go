@@ -1,10 +1,14 @@
 package cache
 
 import (
+	"fmt"
 	types "resource-tree-handler/apis"
 	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
 	compositionHelper "resource-tree-handler/internal/helpers/kube/compositions"
+	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type ResourceTreeUpdate struct {
@@ -16,6 +20,9 @@ type ResourceTreeUpdate struct {
 
 type operation int
 
+// UpdateOperation represents a function that modifies a ResourceTreeUpdate
+type UpdateOperation func(*ResourceTreeUpdate) error
+
 const (
 	opAdd operation = iota
 	opUpdate
@@ -24,26 +31,44 @@ const (
 	opDelete
 	opListKeys
 	opIsUidInCache
+	opQueuedUpdate
+	// opWaitForResource: When received, checks if resource exists in cache and returns immediately if found.
+	// If not found, adds caller's response channel to waiters list for that composition ID.
+	// Caller will be notified through the channel when resource is added via opAdd, or will timeout.
+	opWaitForResource
+	opCleanupWaiter
 )
 
 type request struct {
 	op            operation
 	compositionId string
+	eventObjectId string
 	resourceTree  types.ResourceTree
 	compReference types.Reference
 	filters       types.Filters
+	updateOp      UpdateOperation
 	responseChan  chan interface{}
+	errorChan     chan error
+}
+
+type waitResult struct {
+	update    *ResourceTreeUpdate
+	ok        bool
+	discarded bool
 }
 
 type ThreadSafeCache struct {
-	requestChan chan request
-	cache       map[string]*ResourceTreeUpdate
+	requestChan  chan request
+	cache        map[string]*ResourceTreeUpdate
+	waiters      map[string]map[string]chan interface{}
+	waitersMutex sync.Mutex
 }
 
 func NewThreadSafeCache() *ThreadSafeCache {
 	c := &ThreadSafeCache{
 		requestChan: make(chan request),
 		cache:       make(map[string]*ResourceTreeUpdate),
+		waiters:     make(map[string]map[string]chan interface{}),
 	}
 	go c.run()
 	return c
@@ -61,6 +86,7 @@ func (c *ThreadSafeCache) run() {
 				Filters:              req.filters,
 			}
 			req.responseChan <- struct{}{}
+			c.notifyWaiters(req.compositionId)
 
 		case opUpdate:
 			if _, ok := c.cache[req.compositionId]; ok {
@@ -111,6 +137,45 @@ func (c *ThreadSafeCache) run() {
 		case opIsUidInCache:
 			_, exists := c.cache[req.compositionId]
 			req.responseChan <- exists
+		case opQueuedUpdate:
+			if obj, ok := c.cache[req.compositionId]; ok {
+				if err := req.updateOp(obj); err != nil {
+					req.errorChan <- err
+				} else {
+					obj.LastUpdate = time.Now()
+					req.responseChan <- struct{}{}
+				}
+			} else {
+				req.errorChan <- fmt.Errorf("resource tree for composition id %s not found", req.compositionId)
+			}
+		case opWaitForResource:
+			if obj, exists := c.cache[req.compositionId]; exists {
+				req.responseChan <- waitResult{update: obj, ok: true, discarded: false}
+			} else {
+				log.Warn().Msgf("Composition not ready %s, setting up waiter %s", req.compositionId, req.eventObjectId)
+				c.waitersMutex.Lock()
+				if _, exists := c.waiters[req.compositionId]; !exists {
+					c.waiters[req.compositionId] = make(map[string]chan interface{})
+				}
+				if responseChan, ok := c.waiters[req.compositionId][req.eventObjectId]; ok {
+					log.Warn().Msgf("Sending discard to %s %s", req.compositionId, req.eventObjectId)
+					responseChan <- waitResult{update: &ResourceTreeUpdate{}, ok: true, discarded: true}
+				}
+				c.waiters[req.compositionId][req.eventObjectId] = req.responseChan
+				c.waitersMutex.Unlock()
+			}
+		case opCleanupWaiter:
+			c.waitersMutex.Lock()
+			if innerMap, exists := c.waiters[req.compositionId]; exists {
+				if _, exists := innerMap[req.eventObjectId]; exists {
+					delete(innerMap, req.eventObjectId)
+					if len(innerMap) == 0 {
+						delete(c.waiters, req.compositionId)
+					}
+				}
+			}
+			c.waitersMutex.Unlock()
+			req.responseChan <- struct{}{}
 		}
 	}
 }
@@ -195,6 +260,70 @@ func (c *ThreadSafeCache) GetResourceTreeFromCache(compositionId string) (*Resou
 		ok     bool
 	})
 	return result.update, result.ok
+}
+
+func (c *ThreadSafeCache) GetResourceTreeFromCacheWithTimeout(compositionId string, eventObjectId string, timeout time.Duration) (*ResourceTreeUpdate, bool, bool) {
+	responseChan := make(chan interface{})
+
+	c.requestChan <- request{
+		op:            opWaitForResource,
+		compositionId: compositionId,
+		eventObjectId: eventObjectId,
+		responseChan:  responseChan,
+	}
+
+	select {
+	case result := <-responseChan:
+		if r, ok := result.(waitResult); ok {
+			return r.update, r.ok, r.discarded
+		}
+		return &ResourceTreeUpdate{}, false, false
+	case <-time.After(timeout):
+		c.requestChan <- request{
+			op:            opCleanupWaiter,
+			compositionId: compositionId,
+			eventObjectId: eventObjectId,
+			responseChan:  responseChan,
+		}
+		return &ResourceTreeUpdate{}, false, false
+	}
+}
+
+func (c *ThreadSafeCache) notifyWaiters(compositionId string) {
+	c.waitersMutex.Lock()
+	defer c.waitersMutex.Unlock()
+
+	log.Info().Msgf("Notifying eventsse waiters for composition id %s", compositionId)
+
+	if waiters, exists := c.waiters[compositionId]; exists {
+		obj := c.cache[compositionId]
+		for key, objectWaiters := range waiters {
+			log.Info().Msgf("\tNotifying eventsse waiter for object id %s", key)
+			objectWaiters <- waitResult{update: obj, ok: true, discarded: false}
+		}
+		delete(c.waiters, compositionId)
+	}
+}
+
+// QueueUpdate allows atomic updates to the ResourceTreeUpdate
+func (c *ThreadSafeCache) QueueUpdate(compositionId string, updateOp UpdateOperation) error {
+	responseChan := make(chan interface{})
+	errorChan := make(chan error)
+
+	c.requestChan <- request{
+		op:            opQueuedUpdate,
+		compositionId: compositionId,
+		updateOp:      updateOp,
+		responseChan:  responseChan,
+		errorChan:     errorChan,
+	}
+
+	select {
+	case err := <-errorChan:
+		return err
+	case <-responseChan:
+		return nil
+	}
 }
 
 func (c *ThreadSafeCache) DeleteFromCache(compositionId string) {

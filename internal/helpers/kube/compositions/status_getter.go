@@ -29,7 +29,7 @@ func GetCompositionResourcesStatus(dynClient *dynamic.DynamicClient, obj *unstru
 		Name:       unstructuredCompositionReference.GetName(),
 		Namespace:  unstructuredCompositionReference.GetNamespace(),
 	}
-	compositionReference_referenceJsonSpec, compositionReference_referenceJsonStatus, err := GetObjectStatus(dynClient, *compositionReference_reference, compositionReference, types.Reference{}, &types.ResourceNodeStatus{})
+	compositionReference_referenceJsonSpec, compositionReference_referenceJsonStatus, err := GetObjectStatus(dynClient, *compositionReference_reference, types.Reference{}, &types.ResourceNodeStatus{})
 	if err != nil {
 		return types.ResourceTree{}, fmt.Errorf("could not obtain CompositionReference status while building resource tree: %w", err)
 	}
@@ -81,7 +81,7 @@ func GetCompositionResourcesStatus(dynClient *dynamic.DynamicClient, obj *unstru
 	managedResourceList = append(managedResourceList, compositionReference)
 
 	for _, managedResource := range managedResourceList {
-		resourceNodeJsonSpec, resourceNodeJsonStatus, err := GetObjectStatus(dynClient, managedResource, compositionReference, *compositionReference_reference, compositionReference_referenceJsonStatus)
+		resourceNodeJsonSpec, resourceNodeJsonStatus, err := GetObjectStatus(dynClient, managedResource, *compositionReference_reference, compositionReference_referenceJsonStatus)
 		if err != nil {
 			log.Warn().Err(err).Msg("error retrieving object status, continuing...")
 			continue
@@ -99,7 +99,7 @@ func GetCompositionResourcesStatus(dynClient *dynamic.DynamicClient, obj *unstru
 	return resourceTree, nil
 }
 
-func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference, compositionReference types.Reference, rootSpecReference types.Reference, rootStatusReference *types.ResourceNodeStatus) (types.ResourceNode, *types.ResourceNodeStatus, error) {
+func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference, rootSpecReference types.Reference, rootStatusReference *types.ResourceNodeStatus) (types.ResourceNode, *types.ResourceNodeStatus, error) {
 	gv, err := schema.ParseGroupVersion(reference.ApiVersion)
 	if err != nil {
 		return types.ResourceNode{}, &types.ResourceNodeStatus{}, fmt.Errorf("could not parse Group/Version of managed resource: %w", err)
