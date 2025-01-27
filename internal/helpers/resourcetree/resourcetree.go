@@ -46,81 +46,98 @@ func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, c
 	}
 
 	cacheObj.AddToCache(resourceTree, string(obj.GetUID()), composition, types.Filters{Exclude: exclude})
+	log.Info().Msgf("Resource tree for composition_id %s cached and ready", obj.GetUID())
 	return nil
 }
 
 func HandleUpdate(newObjectReference types.Reference, newObjectKind string, compositionId string, cacheObj *cacheHelper.ThreadSafeCache, dynClient *dynamic.DynamicClient) {
-	resourceTree, ok := cacheObj.GetResourceTreeFromCache(compositionId)
-	if !ok {
-		log.Error().Msgf("resource tree for composition id %s not found", compositionId)
-		return
-	}
-
-	log.Info().Msgf("Update event for object %s %s %s %s in composition_id %s", newObjectReference.ApiVersion, newObjectReference.Resource, newObjectReference.Name, newObjectReference.Namespace, compositionId)
-
-	// Get the resource tree root element: CompositionReference, through labels
-	_, unstructuredCompositionReference, err := filtersHelper.GetCompositionReference(dynClient, resourceTree.CompositionReference)
-	if err != nil {
-		log.Error().Err(err).Msg("could not obtain CompositionReference while building resource tree")
-		return
-	}
-	compositionReference_reference := types.Reference{
-		ApiVersion: "resourcetrees.krateo.io/v1",
-		Kind:       "CompositionReference",
-		Resource:   "compositionreferences",
-		Name:       unstructuredCompositionReference.GetName(),
-		Namespace:  unstructuredCompositionReference.GetNamespace(),
-	}
-
-	resourceNodeJsonSpec, resourceNodeJsonStatus, err := compositionHelper.GetObjectStatus(dynClient, newObjectReference, resourceTree.CompositionReference, compositionReference_reference, resourceTree.ResourceTree.RootElementStatus)
-	if err != nil {
-		log.Error().Err(err).Msg("error retrieving object status")
-		return
-	}
-	found := false
-	for i, obj := range resourceTree.ResourceTree.Resources.Spec.Tree {
-		if obj.APIVersion == newObjectReference.ApiVersion && obj.Resource == newObjectReference.Resource && obj.Name == newObjectReference.Name && obj.Namespace == newObjectReference.Namespace {
-			resourceNodeJsonSpec.ParentRefs = obj.ParentRefs
-
-			// Delete old object from spec array
-			resourceTree.ResourceTree.Resources.Spec.Tree = append(resourceTree.ResourceTree.Resources.Spec.Tree[:i], resourceTree.ResourceTree.Resources.Spec.Tree[i+1:]...)
-			// Append new object to spec array
-			resourceTree.ResourceTree.Resources.Spec.Tree = append(resourceTree.ResourceTree.Resources.Spec.Tree, resourceNodeJsonSpec)
-
-			found = true
+	updateOp := func(resourceTree *cacheHelper.ResourceTreeUpdate) error {
+		// Get the resource tree root element: CompositionReference, through labels
+		_, unstructuredCompositionReference, err := filtersHelper.GetCompositionReference(dynClient, resourceTree.CompositionReference)
+		if err != nil {
+			return fmt.Errorf("could not obtain CompositionReference while building resource tree: %w", err)
 		}
-	}
-	if !found {
-		resourceTree.ResourceTree.Resources.Spec.Tree = append(resourceTree.ResourceTree.Resources.Spec.Tree, resourceNodeJsonSpec)
-	}
 
-	found = false
-	for i, obj := range resourceTree.ResourceTree.Resources.Status {
-		if obj.Kind == newObjectKind && obj.Version == newObjectReference.ApiVersion && obj.Name == newObjectReference.Name && obj.Namespace == newObjectReference.Namespace {
-			resourceNodeJsonStatus.ParentRefs = obj.ParentRefs
-
-			// Delete old object from status array
-			resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status[:i], resourceTree.ResourceTree.Resources.Status[i+1:]...)
-			// Append new object to status array
-			resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status, resourceNodeJsonStatus)
-
-			found = true
+		compositionReference_reference := types.Reference{
+			ApiVersion: "resourcetrees.krateo.io/v1",
+			Kind:       "CompositionReference",
+			Resource:   "compositionreferences",
+			Name:       unstructuredCompositionReference.GetName(),
+			Namespace:  unstructuredCompositionReference.GetNamespace(),
 		}
-	}
-	if !found {
-		resourceTree.ResourceTree.Resources.Status = append(resourceTree.ResourceTree.Resources.Status, resourceNodeJsonStatus)
+
+		resourceNodeJsonSpec, resourceNodeJsonStatus, err := compositionHelper.GetObjectStatus(dynClient, newObjectReference, compositionReference_reference, resourceTree.ResourceTree.RootElementStatus)
+		if err != nil {
+			return fmt.Errorf("error retrieving object status: %w", err)
+		}
+
+		// Update spec
+		found := false
+		for i, obj := range resourceTree.ResourceTree.Resources.Spec.Tree {
+			if obj.APIVersion == newObjectReference.ApiVersion &&
+				obj.Resource == newObjectReference.Resource &&
+				obj.Name == newObjectReference.Name &&
+				obj.Namespace == newObjectReference.Namespace {
+
+				resourceNodeJsonSpec.ParentRefs = obj.ParentRefs
+				resourceTree.ResourceTree.Resources.Spec.Tree = append(
+					resourceTree.ResourceTree.Resources.Spec.Tree[:i],
+					append([]types.ResourceNode{resourceNodeJsonSpec},
+						resourceTree.ResourceTree.Resources.Spec.Tree[i+1:]...)...)
+				found = true
+				break
+			}
+		}
+		if !found {
+			resourceTree.ResourceTree.Resources.Spec.Tree = append(
+				resourceTree.ResourceTree.Resources.Spec.Tree,
+				resourceNodeJsonSpec)
+			log.Info().Msgf("Object missing in data spec, adding object %s %s %s %s in composition_id %s", newObjectReference.ApiVersion, newObjectReference.Resource, newObjectReference.Name, newObjectReference.Namespace, compositionId)
+		}
+
+		// Update status (similar pattern)
+		found = false
+		for i, obj := range resourceTree.ResourceTree.Resources.Status {
+			if obj.Kind == newObjectKind &&
+				obj.Version == newObjectReference.ApiVersion &&
+				obj.Name == newObjectReference.Name &&
+				obj.Namespace == newObjectReference.Namespace {
+
+				resourceNodeJsonStatus.ParentRefs = obj.ParentRefs
+				resourceTree.ResourceTree.Resources.Status = append(
+					resourceTree.ResourceTree.Resources.Status[:i],
+					append([]*types.ResourceNodeStatus{resourceNodeJsonStatus},
+						resourceTree.ResourceTree.Resources.Status[i+1:]...)...)
+				found = true
+				break
+			}
+		}
+		if !found {
+			resourceTree.ResourceTree.Resources.Status = append(
+				resourceTree.ResourceTree.Resources.Status,
+				resourceNodeJsonStatus)
+			log.Info().Msgf("Object missing in data status, adding object %s %s %s %s in composition_id %s", newObjectReference.ApiVersion, newObjectReference.Resource, newObjectReference.Name, newObjectReference.Namespace, compositionId)
+		}
+
+		for _, obj := range resourceTree.ResourceTree.Resources.Status {
+			log.Debug().Msgf("objects in resource tree status %s %s %s %s for composition_id %s", obj.Version, obj.Kind, obj.Name, obj.Namespace, compositionId)
+		}
+
+		// Update composition status
+		compositionUnstructured, err := kubeHelper.GetObj(context.Background(), &resourceTree.CompositionReference, dynClient)
+		if err != nil {
+			return fmt.Errorf("retrieving object, could not update composition status: %w", err)
+		}
+
+		err = compositionHelper.SetCompositionReferenceStatus(compositionUnstructured, resourceTree.CompositionReference, &resourceTree.ResourceTree, dynClient)
+		if err != nil {
+			return fmt.Errorf("error while updating the composition status: %w", err)
+		}
+
+		return nil
 	}
 
-	cacheObj.UpdateCacheEntry(resourceTree.ResourceTree, compositionId, resourceTree.CompositionReference)
-
-	compositionUnstructured, err := kubeHelper.GetObj(context.Background(), &resourceTree.CompositionReference, dynClient)
-	if err != nil {
-		log.Error().Err(err).Msg("retrieving object, could not update composition status")
-		return
-	}
-
-	err = compositionHelper.SetCompositionReferenceStatus(compositionUnstructured, resourceTree.CompositionReference, &resourceTree.ResourceTree, dynClient)
-	if err != nil {
-		log.Error().Err(err).Msgf("error while updating the composition status for composition id %s (update)", compositionId)
+	if err := cacheObj.QueueUpdate(compositionId, updateOp); err != nil {
+		log.Error().Err(err).Msgf("failed to update resource tree for composition id %s", compositionId)
 	}
 }

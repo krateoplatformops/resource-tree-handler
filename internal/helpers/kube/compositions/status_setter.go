@@ -30,12 +30,19 @@ func SetCompositionReferenceStatus(compositionObj *unstructured.Unstructured, co
 	log.Info().Msgf("Composition %s status %t", compositionReference.Name, isReady)
 	status := cases.Title(language.English, cases.NoLower).String(strconv.FormatBool(isReady))
 
+	reason := "Available"
+	if !isReady {
+		reason = "Degraded"
+	}
+
+	// THIS IS PROBABLY WRONG, HOWEVER, IT'S LIKE THIS FOR THE FRONTEND
+	// status and reason are inverted on purpose
 	unstructured.SetNestedSlice(unstructuredCompositionReference.Object, []interface{}{
 		map[string]interface{}{
 			"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
 			"message":            message,
-			"reason":             "Available",
-			"status":             status,
+			"reason":             status,
+			"status":             reason,
 			"type":               "CompositionStatus",
 		},
 	}, "status", "conditions")
@@ -61,7 +68,7 @@ func SetCompositionReferenceStatus(compositionObj *unstructured.Unstructured, co
 		Name:       unstructuredCompositionReference.GetName(),
 		Namespace:  unstructuredCompositionReference.GetNamespace(),
 	}
-	_, compositionReference_referenceJsonStatus, err := GetObjectStatus(dynClient, *compositionReference_reference, compositionReference, types.Reference{}, &types.ResourceNodeStatus{})
+	_, compositionReference_referenceJsonStatus, err := GetObjectStatus(dynClient, *compositionReference_reference, types.Reference{}, &types.ResourceNodeStatus{})
 	if err != nil {
 		return fmt.Errorf("could not obtain CompositionReference status while building resource tree: %w", err)
 	}
@@ -73,20 +80,25 @@ func SetCompositionReferenceStatus(compositionObj *unstructured.Unstructured, co
 }
 
 func IsCompositionReady(resourceTree *types.ResourceTree) (bool, string) {
+	log.Info().Msg("Checking composition status...")
+	logging := "\n"
 	positives := []string{
 		"", "ready", "complete", "healthy", "active", "able",
 	}
 	for _, status := range resourceTree.Resources.Status {
-		log.Info().Msgf("resource %s health type %s value %s", status.Kind, status.Health.Type, status.Health.Status)
+		logging += fmt.Sprintf("resource %s health type %s value %s\n", status.Kind, status.Health.Type, status.Health.Status)
 		if status.Kind == "CompositionReference" {
 			continue
 		}
 		if has(positives, status.Health.Type) {
 			if strings.ToLower(status.Health.Status) != "true" && status.Health.Type != "" {
+				log.Debug().Msg(logging)
+				log.Warn().Msgf("Object not positive >> Kind: %s - Name: %s - Namespace: %s - Message: %s", status.Kind, status.Name, status.Namespace, status.Health.Message)
 				return false, fmt.Sprintf("Kind: %s - Name: %s - Namespace: %s - Message: %s", status.Kind, status.Name, status.Namespace, status.Health.Message)
 			}
 		}
 	}
+	log.Debug().Msg(logging)
 	return true, ""
 }
 
