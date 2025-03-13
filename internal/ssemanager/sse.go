@@ -136,14 +136,9 @@ func (r *SSE) UnsubscribeFrom(compositionId string) {
 
 func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *cacheHelper.ThreadSafeCache, logger *zerolog.Logger) {
 	logger.Info().Msgf("Function callback for event %s", eventObj.LastEventID)
-	dynClient, err := kubeHelper.NewDynamicClient(config)
-	if err != nil {
-		logger.Error().Err(err).Msgf("there was an error obtaining the dynamic client")
-		return
-	}
 
 	var event Event
-	err = json.Unmarshal([]byte(eventObj.Data), &event)
+	err := json.Unmarshal([]byte(eventObj.Data), &event)
 	if err != nil {
 		logger.Error().Err(err).Msgf("there was an error unmarshaling the event %s", eventObj.Data)
 		return
@@ -158,7 +153,7 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *
 		Namespace:  event.InvolvedObject.Namespace,
 	}
 
-	objectUnstructured, err := kubeHelper.GetObj(context.TODO(), objectReference, dynClient)
+	objectUnstructured, err := kubeHelper.GetObj(context.TODO(), objectReference, config)
 	if err != nil {
 		logger.Error().Err(err).Msgf("retrieving event object, stopping event handling")
 		return
@@ -174,19 +169,19 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *
 			logger.Warn().Msgf("Discarded function callback for event %s, object uid %s, event obsolete...", eventObj.LastEventID, string(event.InvolvedObject.UID))
 			return
 		}
-		exclude := filtersHelper.GetFilters(dynClient, resourceTree.CompositionReference)
+		exclude := filtersHelper.GetFilters(config, resourceTree.CompositionReference)
 		// If the filters did not change, then update the resource tree entry
 		if filtersHelper.CompareFilters(types.Filters{Exclude: exclude}, resourceTree.Filters) {
 			logger.Info().Msgf("Handling object update for object %s %s %s %s and composition id %s", objectReference.Resource, objectReference.ApiVersion, objectReference.Name, objectReference.Namespace, compositionId)
-			resourcetreeHelper.HandleUpdate(*objectReference, event.InvolvedObject.Kind, compositionId, cacheObj, dynClient)
+			resourcetreeHelper.HandleUpdate(*objectReference, event.InvolvedObject.Kind, compositionId, cacheObj, config)
 		} else { // If the filters did change, then rebuild the entire resource tree
 			logger.Info().Msgf("Filter update detected, updating resource tree for composition id %s", compositionId)
-			compositionUnstructured, err := kubeHelper.GetObj(context.TODO(), &resourceTree.CompositionReference, dynClient)
+			compositionUnstructured, err := kubeHelper.GetObj(context.TODO(), &resourceTree.CompositionReference, config)
 			if err != nil {
 				logger.Error().Err(err).Msgf("retrieving composition object")
 				return
 			}
-			resourcetreeHelper.HandleCreate(compositionUnstructured, resourceTree.CompositionReference, cacheObj, dynClient)
+			resourcetreeHelper.HandleCreate(compositionUnstructured, resourceTree.CompositionReference, cacheObj, config)
 		}
 
 	}

@@ -43,12 +43,6 @@ func main() {
 		return
 	}
 
-	dynClient, err := kubeHelper.NewDynamicClient(config)
-	if err != nil {
-		log.Error().Err(err).Msg("obtaining dynamic client for kubernetes")
-		return
-	}
-
 	// Initialize cache object
 	cache := cacheHelper.NewThreadSafeCache()
 
@@ -65,7 +59,6 @@ func main() {
 		Config:         config,
 		WebservicePort: configuration.WebServicePort,
 		Cache:          cache,
-		DynClient:      dynClient,
 		SSE:            sse,
 	}
 	w.Spinup() // blocks main thread

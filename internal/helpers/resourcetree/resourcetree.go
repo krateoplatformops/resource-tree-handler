@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	types "resource-tree-handler/apis"
 	cacheHelper "resource-tree-handler/internal/cache"
@@ -32,9 +32,14 @@ func GetUidByCompositionReference(composition *types.Reference, cacheObj *cacheH
 	return ""
 }
 
-func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, cacheObj *cacheHelper.ThreadSafeCache, dynClient *dynamic.DynamicClient) error {
-	exclude := filtersHelper.GetFilters(dynClient, composition)
-	resourceTree, err := compositionHelper.GetCompositionResourcesStatus(dynClient, obj, composition, exclude)
+func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, cacheObj *cacheHelper.ThreadSafeCache, config *rest.Config) error {
+	dynClient, err := kubeHelper.NewDynamicClient(config)
+	if err != nil {
+		return fmt.Errorf("obtaining dynamic client for kubernetes: %w", err)
+	}
+
+	exclude := filtersHelper.GetFilters(config, composition)
+	resourceTree, err := compositionHelper.GetCompositionResourcesStatus(config, obj, composition, exclude)
 	if err != nil {
 		log.Error().Err(err).Msg("retrieving managed array statuses")
 		return fmt.Errorf("error while retrieving managed array statuses: %w", err)
@@ -50,7 +55,13 @@ func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, c
 	return nil
 }
 
-func HandleUpdate(newObjectReference types.Reference, newObjectKind string, compositionId string, cacheObj *cacheHelper.ThreadSafeCache, dynClient *dynamic.DynamicClient) {
+func HandleUpdate(newObjectReference types.Reference, newObjectKind string, compositionId string, cacheObj *cacheHelper.ThreadSafeCache, config *rest.Config) {
+	dynClient, err := kubeHelper.NewDynamicClient(config)
+	if err != nil {
+		log.Error().Err(err).Msgf("obtaining dynamic client for kubernetes")
+		return
+	}
+
 	updateOp := func(resourceTree *cacheHelper.ResourceTreeUpdate) error {
 		// Get the resource tree root element: CompositionReference, through labels
 		_, unstructuredCompositionReference, err := filtersHelper.GetCompositionReference(dynClient, resourceTree.CompositionReference)
@@ -124,7 +135,7 @@ func HandleUpdate(newObjectReference types.Reference, newObjectKind string, comp
 		}
 
 		// Update composition status
-		compositionUnstructured, err := kubeHelper.GetObj(context.Background(), &resourceTree.CompositionReference, dynClient)
+		compositionUnstructured, err := kubeHelper.GetObj(context.Background(), &resourceTree.CompositionReference, config)
 		if err != nil {
 			return fmt.Errorf("retrieving object, could not update composition status: %w", err)
 		}

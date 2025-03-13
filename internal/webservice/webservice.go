@@ -12,18 +12,17 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
 	corev1 "k8s.io/api/core/v1"
 
 	types "resource-tree-handler/apis"
-	cacheHelper "resource-tree-handler/internal/cache"
-	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
-	compositionHelper "resource-tree-handler/internal/helpers/kube/compositions"
-	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
-	resourcetreeHelper "resource-tree-handler/internal/helpers/resourcetree"
-	sseHelper "resource-tree-handler/internal/ssemanager"
+	cachehelper "resource-tree-handler/internal/cache"
+	kubehelper "resource-tree-handler/internal/helpers/kube/client"
+	compositionhelper "resource-tree-handler/internal/helpers/kube/compositions"
+	filtershelper "resource-tree-handler/internal/helpers/kube/filters"
+	resourcetreehelper "resource-tree-handler/internal/helpers/resourcetree"
+	ssehelper "resource-tree-handler/internal/ssemanager"
 )
 
 const (
@@ -40,9 +39,8 @@ const (
 type Webservice struct {
 	WebservicePort      int
 	Config              *rest.Config
-	DynClient           *dynamic.DynamicClient
-	SSE                 *sseHelper.SSE
-	Cache               *cacheHelper.ThreadSafeCache
+	SSE                 *ssehelper.SSE
+	Cache               *cachehelper.ThreadSafeCache
 	compositionStatus   map[string]string
 	compositionStatusMu sync.Mutex
 }
@@ -100,7 +98,7 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 		return
 	}
 
-	compositionUnstructured, compositionReferece, err := compositionHelper.GetCompositionById(compositionId, r.DynClient, r.Config)
+	compositionUnstructured, compositionReferece, err := compositionhelper.GetCompositionById(compositionId, r.Config)
 	if err != nil {
 		log.Error().Err(err).Msgf("could not get composition with id %s", compositionId)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling %s event: %s", event.Reason, err)})
@@ -113,7 +111,7 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 		r.SSE.SubscribeTo(string(compositionUnstructured.GetUID()))
 
 		// Build resource tree for composition
-		err = resourcetreeHelper.HandleCreate(compositionUnstructured, *compositionReferece, r.Cache, r.DynClient)
+		err = resourcetreehelper.HandleCreate(compositionUnstructured, *compositionReferece, r.Cache, r.Config)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling %s event: %s", event.Reason, err)})
 			return
@@ -140,14 +138,14 @@ func (r *Webservice) handleRefresh(c *gin.Context) {
 
 	log.Info().Msgf("'CompositionCreated' event for composition %s %s %s %s", reference.ApiVersion, reference.Resource, reference.Name, reference.Namespace)
 
-	obj, err := kubeHelper.GetObj(c.Request.Context(), reference, r.DynClient)
+	obj, err := kubehelper.GetObj(c.Request.Context(), reference, r.Config)
 	if err != nil {
 		log.Error().Err(err).Msg("retrieving object")
 	}
-	exclude := filtersHelper.GetFilters(r.DynClient, *reference)
+	exclude := filtershelper.GetFilters(r.Config, *reference)
 	if r.continueOperationsWithComposition(compositionId) {
 		r.setContinueOperationsWithComposition(compositionId, busyString)
-		resourceTree, err := compositionHelper.GetCompositionResourcesStatus(r.DynClient, obj, *reference, exclude)
+		resourceTree, err := compositionhelper.GetCompositionResourcesStatus(r.Config, obj, *reference, exclude)
 		if err != nil {
 			log.Error().Err(err).Msg("retrieving managed array statuses")
 		}
@@ -167,7 +165,7 @@ func (r *Webservice) handleRequest(c *gin.Context) {
 	resourceTreeStatusObj, ok := r.Cache.GetJSONFromCache(compositionId)
 	if !ok {
 		log.Warn().Msgf("could not find resource tree for CompositionId %s", compositionId)
-		compositionUnstructured, compositionReferece, err := compositionHelper.GetCompositionById(compositionId, r.DynClient, r.Config)
+		compositionUnstructured, compositionReferece, err := compositionhelper.GetCompositionById(compositionId, r.Config)
 		if err != nil {
 			log.Error().Err(err).Msgf("could not obtain composition object with composition id %s", compositionId)
 			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", fmt.Errorf("could not obtain composition object with composition id %s: %v", compositionId, err))})
@@ -176,7 +174,7 @@ func (r *Webservice) handleRequest(c *gin.Context) {
 		if r.continueOperationsWithComposition(compositionId) {
 			r.setContinueOperationsWithComposition(compositionId, busyString)
 			log.Info().Msgf("Triggering CREATE event from GET request for composition id %s: ", compositionId)
-			err = resourcetreeHelper.HandleCreate(compositionUnstructured, *compositionReferece, r.Cache, r.DynClient)
+			err = resourcetreehelper.HandleCreate(compositionUnstructured, *compositionReferece, r.Cache, r.Config)
 			if err != nil {
 				log.Error().Err(err).Msgf("could not create resource tree for composition id: %s", compositionId)
 				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", fmt.Errorf("could not create resource tree for composition id %s: %v", compositionId, err))})

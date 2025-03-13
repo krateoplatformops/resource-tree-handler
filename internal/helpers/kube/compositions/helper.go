@@ -11,10 +11,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
 	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
+	"slices"
 )
 
 func isFullMatch(pattern, str string) (bool, error) {
@@ -69,7 +69,12 @@ func ShouldItSkip(exclude types.Exclude, managedResource types.Reference) bool {
 	return false
 }
 
-func GetCompositionById(compositionId string, dynClient *dynamic.DynamicClient, config *rest.Config) (*unstructured.Unstructured, *types.Reference, error) {
+func GetCompositionById(compositionId string, config *rest.Config) (*unstructured.Unstructured, *types.Reference, error) {
+	dynClient, err := kubeHelper.NewDynamicClient(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("obtaining dynamic client for kubernetes: %w", err)
+	}
+
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create discovery client: %v", err)
@@ -106,7 +111,7 @@ func GetCompositionById(compositionId string, dynClient *dynamic.DynamicClient, 
 		// Search through each resource type in the group
 		for _, r := range resources.APIResources {
 			// Skip resources that can't be listed
-			if !containsString(r.Verbs, "list") {
+			if !slices.Contains(r.Verbs, "list") {
 				continue
 			}
 
@@ -148,14 +153,4 @@ func GetCompositionById(compositionId string, dynClient *dynamic.DynamicClient, 
 	}
 
 	return nil, nil, fmt.Errorf("did not find composition with id %s in any version or resource type", compositionId)
-}
-
-// Helper function to check if a string slice contains a specific string
-func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }
