@@ -11,6 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+
+	kubehelper "resource-tree-handler/internal/helpers/kube/client"
 )
 
 const (
@@ -74,7 +77,13 @@ func GetCompositionReference(dynClient *dynamic.DynamicClient, composition types
 	return compositionRef, &item, nil
 }
 
-func GetFilters(dynClient *dynamic.DynamicClient, composition types.Reference) []types.Exclude {
+func GetFilters(config *rest.Config, composition types.Reference) []types.Exclude {
+	dynClient, err := kubehelper.NewDynamicClient(config)
+	if err != nil {
+		log.Error().Err(err).Msgf("obtaining dynamic client for kubernetes")
+		return []types.Exclude{}
+	}
+
 	compositionRef, _, err := GetCompositionReference(dynClient, composition)
 	if err != nil {
 		log.Error().Err(err).Msgf("error retrieving composition reference")

@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 
-	api_types "resource-tree-handler/apis"
+	apitypes "resource-tree-handler/apis"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -28,13 +28,18 @@ func NewDynamicClient(rc *rest.Config) (*dynamic.DynamicClient, error) {
 	config.APIPath = "/api"
 	config.NegotiatedSerializer = serializer.NewCodecFactory(scheme.Scheme)
 	config.UserAgent = rest.DefaultKubernetesUserAgent()
-	//config.QPS = 1000
-	//config.Burst = 3000
+	// config.QPS = 100
+	// config.Burst = 1000
 
 	return dynamic.NewForConfig(&config)
 }
 
-func GetObj(ctx context.Context, cr *api_types.Reference, dynClient *dynamic.DynamicClient) (*unstructured.Unstructured, error) {
+func GetObj(ctx context.Context, cr *apitypes.Reference, config *rest.Config) (*unstructured.Unstructured, error) {
+	dynClient, err := NewDynamicClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("obtaining dynamic client for kubernetes: %w", err)
+	}
+
 	gv, err := schema.ParseGroupVersion(cr.ApiVersion)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse GroupVersion from composition reference ApiVersion: %w", err)

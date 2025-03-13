@@ -17,11 +17,11 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	types "resource-tree-handler/apis"
-	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
+	filtershelper "resource-tree-handler/internal/helpers/kube/filters"
 )
 
 func SetCompositionReferenceStatus(compositionObj *unstructured.Unstructured, compositionReference types.Reference, resourceTree *types.ResourceTree, dynClient *dynamic.DynamicClient) error {
-	_, unstructuredCompositionReference, err := filtersHelper.GetCompositionReference(dynClient, compositionReference)
+	_, unstructuredCompositionReference, err := filtershelper.GetCompositionReference(dynClient, compositionReference)
 	if err != nil {
 		return fmt.Errorf("could not obtain compositionReference: %v", err)
 	}

@@ -7,18 +7,25 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/rs/zerolog/log"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	types "resource-tree-handler/apis"
-	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
+	kubehelper "resource-tree-handler/internal/helpers/kube/client"
+	filtershelper "resource-tree-handler/internal/helpers/kube/filters"
 )
 
-func GetCompositionResourcesStatus(dynClient *dynamic.DynamicClient, obj *unstructured.Unstructured, compositionReference types.Reference, excludes []types.Exclude) (types.ResourceTree, error) {
+func GetCompositionResourcesStatus(config *rest.Config, obj *unstructured.Unstructured, compositionReference types.Reference, excludes []types.Exclude) (types.ResourceTree, error) {
+	dynClient, err := kubehelper.NewDynamicClient(config)
+	if err != nil {
+		return types.ResourceTree{}, fmt.Errorf("obtaining dynamic client for kubernetes: %w", err)
+	}
+
 	// Get the resource tree root element: CompositionReference, through labels
-	_, unstructuredCompositionReference, err := filtersHelper.GetCompositionReference(dynClient, compositionReference)
+	_, unstructuredCompositionReference, err := filtershelper.GetCompositionReference(dynClient, compositionReference)
 	if err != nil {
 		return types.ResourceTree{}, fmt.Errorf("could not obtain CompositionReference while building resource tree: %w", err)
 	}
