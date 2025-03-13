@@ -14,10 +14,10 @@ import (
 	"k8s.io/client-go/rest"
 
 	types "resource-tree-handler/apis"
-	cacheHelper "resource-tree-handler/internal/cache"
-	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
-	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
-	resourcetreeHelper "resource-tree-handler/internal/helpers/resourcetree"
+	cachehelper "resource-tree-handler/internal/cache"
+	kubehelper "resource-tree-handler/internal/helpers/kube/client"
+	filtershelper "resource-tree-handler/internal/helpers/kube/filters"
+	resourcetreehelper "resource-tree-handler/internal/helpers/resourcetree"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -31,7 +31,7 @@ type SSE struct {
 	unsubscribe   map[string]sse.EventCallbackRemover
 	unsubscribeMu sync.Mutex
 	logger        *zerolog.Logger
-	Cache         *cacheHelper.ThreadSafeCache
+	Cache         *cachehelper.ThreadSafeCache
 
 	// Connection management
 	isConnected   bool
@@ -134,7 +134,7 @@ func (r *SSE) UnsubscribeFrom(compositionId string) {
 	r.unsubscribeMu.Unlock()
 }
 
-func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *cacheHelper.ThreadSafeCache, logger *zerolog.Logger) {
+func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *cachehelper.ThreadSafeCache, logger *zerolog.Logger) {
 	logger.Info().Msgf("Function callback for event %s", eventObj.LastEventID)
 
 	var event Event
@@ -144,7 +144,7 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *
 		return
 	}
 
-	gr := kubeHelper.InferGroupResource(event.InvolvedObject.APIVersion, event.InvolvedObject.Kind)
+	gr := kubehelper.InferGroupResource(event.InvolvedObject.APIVersion, event.InvolvedObject.Kind)
 	objectReference := &types.Reference{
 		ApiVersion: event.InvolvedObject.APIVersion,
 		Kind:       event.InvolvedObject.Kind,
@@ -153,7 +153,7 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *
 		Namespace:  event.InvolvedObject.Namespace,
 	}
 
-	objectUnstructured, err := kubeHelper.GetObj(context.TODO(), objectReference, config)
+	objectUnstructured, err := kubehelper.GetObj(context.TODO(), objectReference, config)
 	if err != nil {
 		logger.Error().Err(err).Msgf("retrieving event object, stopping event handling")
 		return
@@ -169,19 +169,19 @@ func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *
 			logger.Warn().Msgf("Discarded function callback for event %s, object uid %s, event obsolete...", eventObj.LastEventID, string(event.InvolvedObject.UID))
 			return
 		}
-		exclude := filtersHelper.GetFilters(config, resourceTree.CompositionReference)
+		exclude := filtershelper.GetFilters(config, resourceTree.CompositionReference)
 		// If the filters did not change, then update the resource tree entry
-		if filtersHelper.CompareFilters(types.Filters{Exclude: exclude}, resourceTree.Filters) {
+		if filtershelper.CompareFilters(types.Filters{Exclude: exclude}, resourceTree.Filters) {
 			logger.Info().Msgf("Handling object update for object %s %s %s %s and composition id %s", objectReference.Resource, objectReference.ApiVersion, objectReference.Name, objectReference.Namespace, compositionId)
-			resourcetreeHelper.HandleUpdate(*objectReference, event.InvolvedObject.Kind, compositionId, cacheObj, config)
+			resourcetreehelper.HandleUpdate(*objectReference, event.InvolvedObject.Kind, compositionId, cacheObj, config)
 		} else { // If the filters did change, then rebuild the entire resource tree
 			logger.Info().Msgf("Filter update detected, updating resource tree for composition id %s", compositionId)
-			compositionUnstructured, err := kubeHelper.GetObj(context.TODO(), &resourceTree.CompositionReference, config)
+			compositionUnstructured, err := kubehelper.GetObj(context.TODO(), &resourceTree.CompositionReference, config)
 			if err != nil {
 				logger.Error().Err(err).Msgf("retrieving composition object")
 				return
 			}
-			resourcetreeHelper.HandleCreate(compositionUnstructured, resourceTree.CompositionReference, cacheObj, config)
+			resourcetreehelper.HandleCreate(compositionUnstructured, resourceTree.CompositionReference, cacheObj, config)
 		}
 
 	}

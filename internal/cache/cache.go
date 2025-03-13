@@ -3,8 +3,8 @@ package cache
 import (
 	"fmt"
 	types "resource-tree-handler/apis"
-	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
-	compositionHelper "resource-tree-handler/internal/helpers/kube/compositions"
+	kubehelper "resource-tree-handler/internal/helpers/kube/client"
+	compositionhelper "resource-tree-handler/internal/helpers/kube/compositions"
 	"sync"
 	"time"
 
@@ -223,7 +223,7 @@ func (c *ThreadSafeCache) GetJSONFromCache(compositionId string) ([]*types.Resou
 		excludes := result.status.Filters.Exclude
 		for _, managedResource := range result.status.ResourceTree.Resources.Status {
 			skip := false
-			gr := kubeHelper.InferGroupResource(managedResource.Version, managedResource.Kind)
+			gr := kubehelper.InferGroupResource(managedResource.Version, managedResource.Kind)
 			reference := types.Reference{
 				ApiVersion: managedResource.Version,
 				Kind:       managedResource.Kind,
@@ -232,7 +232,7 @@ func (c *ThreadSafeCache) GetJSONFromCache(compositionId string) ([]*types.Resou
 				Namespace:  managedResource.Namespace,
 			}
 			for _, exclude := range excludes {
-				if compositionHelper.ShouldItSkip(exclude, reference) {
+				if compositionhelper.ShouldItSkip(exclude, reference) {
 					skip = true
 					break
 				}

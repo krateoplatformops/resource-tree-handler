@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 
-	api_types "resource-tree-handler/apis"
+	apitypes "resource-tree-handler/apis"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -34,7 +34,7 @@ func NewDynamicClient(rc *rest.Config) (*dynamic.DynamicClient, error) {
 	return dynamic.NewForConfig(&config)
 }
 
-func GetObj(ctx context.Context, cr *api_types.Reference, config *rest.Config) (*unstructured.Unstructured, error) {
+func GetObj(ctx context.Context, cr *apitypes.Reference, config *rest.Config) (*unstructured.Unstructured, error) {
 	dynClient, err := NewDynamicClient(config)
 	if err != nil {
 		return nil, fmt.Errorf("obtaining dynamic client for kubernetes: %w", err)

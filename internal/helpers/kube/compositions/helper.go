@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 
-	kubeHelper "resource-tree-handler/internal/helpers/kube/client"
+	kubehelper "resource-tree-handler/internal/helpers/kube/client"
 	"slices"
 )
 
@@ -70,7 +70,7 @@ func ShouldItSkip(exclude types.Exclude, managedResource types.Reference) bool {
 }
 
 func GetCompositionById(compositionId string, config *rest.Config) (*unstructured.Unstructured, *types.Reference, error) {
-	dynClient, err := kubeHelper.NewDynamicClient(config)
+	dynClient, err := kubehelper.NewDynamicClient(config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("obtaining dynamic client for kubernetes: %w", err)
 	}
@@ -141,7 +141,7 @@ func GetCompositionById(compositionId string, config *rest.Config) (*unstructure
 					ref := &types.Reference{
 						ApiVersion: item.GetAPIVersion(),
 						Kind:       item.GetKind(),
-						Resource:   kubeHelper.InferGroupResource(item.GetAPIVersion(), item.GetKind()).Resource,
+						Resource:   kubehelper.InferGroupResource(item.GetAPIVersion(), item.GetKind()).Resource,
 						Name:       item.GetName(),
 						Namespace:  item.GetNamespace(),
 					}
