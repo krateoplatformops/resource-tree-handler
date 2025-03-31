@@ -91,14 +91,16 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 		return
 	}
 
-	log.Info().Msgf("Event %s received for composition id %s", event.Reason, string(event.InvolvedObject.UID))
-	log.Info().Msgf("IsUidInCache(%s): %t", string(event.InvolvedObject.UID), r.Cache.IsUidInCache(string(event.InvolvedObject.UID)))
-
 	compositionId := string(event.InvolvedObject.UID)
+
+	log.Info().Msgf("Event %s received for composition id %s", event.Reason, compositionId)
+	log.Info().Msgf("IsUidInCache(%s): %t", compositionId, r.Cache.IsUidInCache(compositionId))
+
 	if !r.continueOperationsWithComposition(compositionId) {
 		c.String(http.StatusTooManyRequests, "composition id %s is busy or queued", compositionId)
 		return
 	}
+	r.setContinueOperationsWithComposition(compositionId, busyString)
 
 	if event.Reason == "CompositionDeleted" {
 		if compositionId == "" {
@@ -201,11 +203,8 @@ func (r *Webservice) handleRequest(c *gin.Context) {
 			return
 		}
 
-		currentStatus := r.getCompositionStatus(compositionId)
-
-		// If it's already queued or busy, just return accepted status
-		if currentStatus == queuedString || currentStatus == busyString {
-			c.JSON(http.StatusAccepted, gin.H{"message": fmt.Sprintf("Composition %s is %s", compositionId, currentStatus)})
+		if !r.continueOperationsWithComposition(compositionId) {
+			c.String(http.StatusTooManyRequests, "composition id %s is busy or queued", compositionId)
 			return
 		}
 
@@ -277,7 +276,7 @@ func (r *Webservice) startWorker(workerId int) {
 
 	for job := range r.jobQueue {
 		compositionId := job.CompositionID
-		log.Debug().Msgf("Worker %d processing job for composition %s", workerId, compositionId)
+		log.Info().Msgf("Worker %d processing job for composition %s", workerId, compositionId)
 
 		// Mark as busy while processing
 		r.setContinueOperationsWithComposition(compositionId, busyString)

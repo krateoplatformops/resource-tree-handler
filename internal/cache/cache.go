@@ -137,17 +137,25 @@ func (c *ThreadSafeCache) run() {
 		case opIsUidInCache:
 			_, exists := c.cache[req.compositionId]
 			req.responseChan <- exists
+
 		case opQueuedUpdate:
 			if obj, ok := c.cache[req.compositionId]; ok {
 				if err := req.updateOp(obj); err != nil {
+					// Send error to error channel
 					req.errorChan <- err
+					// Also send an empty response to ensure the response channel is not blocked
+					req.responseChan <- struct{}{}
 				} else {
 					obj.LastUpdate = time.Now()
 					req.responseChan <- struct{}{}
 				}
 			} else {
+				// Send error to error channel
 				req.errorChan <- fmt.Errorf("resource tree for composition id %s not found", req.compositionId)
+				// Also send an empty response to ensure the response channel is not blocked
+				req.responseChan <- struct{}{}
 			}
+
 		case opWaitForResource:
 			if obj, exists := c.cache[req.compositionId]; exists {
 				req.responseChan <- waitResult{update: obj, ok: true, discarded: false}
@@ -164,6 +172,7 @@ func (c *ThreadSafeCache) run() {
 				c.waiters[req.compositionId][req.eventObjectId] = req.responseChan
 				c.waitersMutex.Unlock()
 			}
+
 		case opCleanupWaiter:
 			c.waitersMutex.Lock()
 			if innerMap, exists := c.waiters[req.compositionId]; exists {
@@ -279,12 +288,15 @@ func (c *ThreadSafeCache) GetResourceTreeFromCacheWithTimeout(compositionId stri
 		}
 		return &ResourceTreeUpdate{}, false, false
 	case <-time.After(timeout):
+		cleanupResponseChan := make(chan interface{})
 		c.requestChan <- request{
 			op:            opCleanupWaiter,
 			compositionId: compositionId,
 			eventObjectId: eventObjectId,
-			responseChan:  responseChan,
+			responseChan:  cleanupResponseChan,
 		}
+		// Make sure to consume the response to avoid goroutine leaks
+		<-cleanupResponseChan
 		return &ResourceTreeUpdate{}, false, false
 	}
 }
@@ -318,11 +330,21 @@ func (c *ThreadSafeCache) QueueUpdate(compositionId string, updateOp UpdateOpera
 		errorChan:     errorChan,
 	}
 
+	// Use select to handle both channels
 	select {
 	case err := <-errorChan:
+		// Consume the response channel to avoid goroutine leak
+		<-responseChan
 		return err
 	case <-responseChan:
-		return nil
+		// Check if there's also an error
+		select {
+		case err := <-errorChan:
+			return err
+		default:
+			// No error, continue
+			return nil
+		}
 	}
 }
 
