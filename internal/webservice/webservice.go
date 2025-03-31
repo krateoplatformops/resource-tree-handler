@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 
@@ -32,9 +33,20 @@ const (
 	requestEndpoint   = "/compositions/:compositionId"
 	refreshEndpoint   = "/refresh/:compositionId"
 
-	busyString = "busy"
-	freeString = "free"
+	busyString   = "busy"
+	freeString   = "free"
+	queuedString = "queued"
+
+	// Maximum number of concurrent resource tree creations
+	maxConcurrentJobs = 10
 )
+
+// CreateJobRequest represents a job to create a resource tree
+type CreateJobRequest struct {
+	CompositionUnstructured *unstructured.Unstructured
+	CompositionReference    types.Reference
+	CompositionID           string
+}
 
 type Webservice struct {
 	WebservicePort      int
@@ -43,6 +55,10 @@ type Webservice struct {
 	Cache               *cachehelper.ThreadSafeCache
 	compositionStatus   map[string]string
 	compositionStatusMu sync.Mutex
+
+	// Job queue for resource tree creation
+	jobQueue  chan CreateJobRequest
+	workersWg sync.WaitGroup
 }
 
 func (r *Webservice) handleHome(c *gin.Context) {
@@ -80,10 +96,8 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 
 	compositionId := string(event.InvolvedObject.UID)
 	if !r.continueOperationsWithComposition(compositionId) {
-		c.String(http.StatusTooManyRequests, "composition id %s is busy", compositionId)
+		c.String(http.StatusTooManyRequests, "composition id %s is busy or queued", compositionId)
 		return
-	} else {
-		r.setContinueOperationsWithComposition(compositionId, busyString)
 	}
 
 	if event.Reason == "CompositionDeleted" {
@@ -110,14 +124,29 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 
 		r.SSE.SubscribeTo(string(compositionUnstructured.GetUID()))
 
-		// Build resource tree for composition
-		err = resourcetreehelper.HandleCreate(compositionUnstructured, *compositionReferece, r.Cache, r.Config)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling %s event: %s", event.Reason, err)})
-			return
+		// Set status to queued before submitting to the queue
+		r.setContinueOperationsWithComposition(compositionId, queuedString)
+
+		// Create the job and submit it to the queue asynchronously
+		job := CreateJobRequest{
+			CompositionUnstructured: compositionUnstructured,
+			CompositionReference:    *compositionReferece,
+			CompositionID:           compositionId,
 		}
+
+		// Respond to client immediately with 202 Accepted
+		c.JSON(http.StatusAccepted, gin.H{"message": fmt.Sprintf("Job for composition %s has been queued", compositionId)})
+
+		// Submit job to queue after responding to client
+		go func() {
+			r.jobQueue <- job
+		}()
+
+		log.Info().Msgf("Job for composition %s has been queued", compositionId)
+	} else {
+		// If we got here, nothing needed to be done
+		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("No action needed for composition %s", compositionId)})
 	}
-	r.setContinueOperationsWithComposition(compositionId, freeString)
 }
 
 func (r *Webservice) handleRefresh(c *gin.Context) {
@@ -171,25 +200,43 @@ func (r *Webservice) handleRequest(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", fmt.Errorf("could not obtain composition object with composition id %s: %v", compositionId, err))})
 			return
 		}
-		if r.continueOperationsWithComposition(compositionId) {
-			r.setContinueOperationsWithComposition(compositionId, busyString)
-			log.Info().Msgf("Triggering CREATE event from GET request for composition id %s: ", compositionId)
-			err = resourcetreehelper.HandleCreate(compositionUnstructured, *compositionReferece, r.Cache, r.Config)
-			if err != nil {
-				log.Error().Err(err).Msgf("could not create resource tree for composition id: %s", compositionId)
-				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Error parsing GET request: %s", fmt.Errorf("could not create resource tree for composition id %s: %v", compositionId, err))})
-				return
-			}
-			r.SSE.SubscribeTo(compositionId)
-			r.setContinueOperationsWithComposition(compositionId, freeString)
-			if r.Cache.IsUidInCache(compositionId) {
-				r.handleRequest(c)
-			}
-		} else {
-			c.String(http.StatusAccepted, "Composition id %s is %s", compositionId, busyString)
+
+		currentStatus := r.getCompositionStatus(compositionId)
+
+		// If it's already queued or busy, just return accepted status
+		if currentStatus == queuedString || currentStatus == busyString {
+			c.JSON(http.StatusAccepted, gin.H{"message": fmt.Sprintf("Composition %s is %s", compositionId, currentStatus)})
+			return
 		}
+
+		// Set status to queued
+		r.setContinueOperationsWithComposition(compositionId, queuedString)
+
+		log.Info().Msgf("Queuing CREATE job from GET request for composition id %s: ", compositionId)
+
+		// Subscribe to SSE before queueing the job
+		r.SSE.SubscribeTo(compositionId)
+
+		// Create the job and submit it to the queue asynchronously
+		job := CreateJobRequest{
+			CompositionUnstructured: compositionUnstructured,
+			CompositionReference:    *compositionReferece,
+			CompositionID:           compositionId,
+		}
+
+		// Respond to client immediately with 202 Accepted
+		c.JSON(http.StatusAccepted, gin.H{"message": fmt.Sprintf("Job for composition %s has been queued", compositionId)})
+
+		// Submit job to queue after responding to client
+		go func() {
+			r.jobQueue <- job
+		}()
+
+		log.Info().Msgf("Job for composition %s has been queued", compositionId)
 		return
 	}
+
+	// Resource tree exists in cache, return it
 	c.JSON(http.StatusOK, resourceTreeStatusObj)
 }
 
@@ -200,7 +247,7 @@ func (r *Webservice) continueOperationsWithComposition(compositionId string) boo
 	if !ok {
 		return true
 	}
-	if val == busyString {
+	if val == busyString || val == queuedString {
 		return false
 	}
 	return true
@@ -212,11 +259,63 @@ func (r *Webservice) setContinueOperationsWithComposition(compositionId string, 
 	r.compositionStatus[compositionId] = value
 }
 
+func (r *Webservice) getCompositionStatus(compositionId string) string {
+	r.compositionStatusMu.Lock()
+	defer r.compositionStatusMu.Unlock()
+	val, ok := r.compositionStatus[compositionId]
+	if !ok {
+		return freeString
+	}
+	return val
+}
+
+// startWorker starts a worker that processes jobs from the queue
+func (r *Webservice) startWorker(workerId int) {
+	defer r.workersWg.Done()
+
+	log.Debug().Msgf("Starting worker %d", workerId)
+
+	for job := range r.jobQueue {
+		compositionId := job.CompositionID
+		log.Debug().Msgf("Worker %d processing job for composition %s", workerId, compositionId)
+
+		// Mark as busy while processing
+		r.setContinueOperationsWithComposition(compositionId, busyString)
+
+		// Execute the actual job
+		err := resourcetreehelper.HandleCreate(job.CompositionUnstructured, job.CompositionReference, r.Cache, r.Config)
+
+		if err != nil {
+			log.Error().Err(err).Msgf("Worker %d failed to create resource tree for composition %s", workerId, compositionId)
+		} else {
+			log.Debug().Msgf("Worker %d successfully created resource tree for composition %s", workerId, compositionId)
+		}
+
+		// Mark as free after processing is done
+		r.setContinueOperationsWithComposition(compositionId, freeString)
+	}
+}
+
+// initWorkerPool initializes the worker pool
+func (r *Webservice) initWorkerPool() {
+	r.jobQueue = make(chan CreateJobRequest, 1000) // Buffer for pending jobs
+
+	// Start the worker pool
+	r.workersWg.Add(maxConcurrentJobs)
+	for i := range maxConcurrentJobs {
+		go r.startWorker(i)
+	}
+
+	log.Info().Msgf("Started worker pool with %d workers", maxConcurrentJobs)
+}
+
 func (r *Webservice) Spinup() {
 	r.compositionStatus = make(map[string]string)
 
+	// Initialize the worker pool
+	r.initWorkerPool()
+
 	var c *gin.Engine
-	// gin.New() instead of gin.Default() to avoid default logging
 	if zerolog.GlobalLevel() == zerolog.DebugLevel {
 		c = gin.New()
 		c.Use(gin.Recovery())
