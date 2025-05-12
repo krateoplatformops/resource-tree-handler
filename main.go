@@ -4,7 +4,6 @@ import (
 	"os"
 	cachehelper "resource-tree-handler/internal/cache"
 	parser "resource-tree-handler/internal/helpers/configuration"
-	kubehelper "resource-tree-handler/internal/helpers/kube/client"
 	"resource-tree-handler/internal/ssemanager"
 	"resource-tree-handler/internal/webservice"
 
@@ -33,8 +32,6 @@ func main() {
 	for _, s := range os.Environ() {
 		log.Debug().Msg(s)
 	}
-
-	kubehelper.PLURALIZER_URL = configuration.PluralizerUrl
 
 	// Kubernetes configuration
 	config, err := rest.InClusterConfig()

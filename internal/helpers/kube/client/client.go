@@ -2,11 +2,7 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -16,12 +12,12 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 
+	"github.com/krateoplatformops/plumbing/kubeutil/plurals"
+
 	apitypes "resource-tree-handler/apis"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-var PLURALIZER_URL = ""
 
 func NewDynamicClient(rc *rest.Config) (*dynamic.DynamicClient, error) {
 	config := *rc
@@ -64,49 +60,22 @@ func InferGroupResource(a, k string) schema.GroupResource {
 		return schema.GroupResource{}
 	}
 
-	req, err := http.NewRequest("GET", PLURALIZER_URL, nil)
-	if err != nil {
-		log.Error().Err(err).Msg("could not create request for pluralizer")
-		return schema.GroupResource{}
+	gvk := schema.GroupVersionKind{
+		Group:   gv.Group,
+		Version: gv.Version,
+		Kind:    k,
 	}
 
-	data := url.Values{}
-	data.Set("apiVersion", a)
-	data.Set("kind", k)
-	req.URL.RawQuery = data.Encode()
-
-	response, err := http.DefaultClient.Do(req)
+	tmp, err := plurals.Get(gvk, plurals.GetOptions{
+		ResolverFunc: plurals.ResolveAPINames,
+	})
 	if err != nil {
-		log.Error().Err(err).Msg("could not make request to pluralizer")
-		return schema.GroupResource{}
-	}
-
-	if response.StatusCode != http.StatusOK {
-		log.Error().Err(fmt.Errorf("pluralizer status: %s", response.Status)).Msg("pluralizer response not 200")
-		return schema.GroupResource{}
-	}
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("could not read body of pluralizer response")
-		return schema.GroupResource{}
-	}
-
-	var plurals names
-	err = json.Unmarshal(body, &plurals)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to unmarshal pluralizer response")
+		log.Error().Err(err).Msgf("could not obtain plural for %s %s %s", gvk.Group, gvk.Kind, gvk.Version)
 		return schema.GroupResource{}
 	}
 
 	return schema.GroupResource{
-		Resource: plurals.Plural,
+		Resource: tmp.Plural,
 		Group:    gv.Group,
 	}
-}
-
-type names struct {
-	Plural   string   `json:"plural"`
-	Singular string   `json:"singular"`
-	Shorts   []string `json:"shorts"`
 }
