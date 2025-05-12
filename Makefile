@@ -8,3 +8,6 @@ build:
 container:
 	docker build -t $(REPO)resource-tree-handler:$(VERSION) .
 	docker push $(REPO)resource-tree-handler:$(VERSION)
+
+container-multi:
+	docker buildx build --tag $(REPO)resource-tree-handler:$(VERSION) --push --platform linux/amd64,linux/arm64 .
