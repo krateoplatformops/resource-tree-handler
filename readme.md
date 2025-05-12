@@ -88,5 +88,3 @@ status:
 The filters are evaluated at runtime, so changes made to the custom resource while the resource-tree-handler is running will be applied at the next event that triggers an update of the resource tree. The changed filter will trigger an update of the whole resource tree, equivalent to calling the `/refresh/<composition_id>` endpoint.
 
 Further configuration will be needed in the HELM chart to include the url for the [eventsse](http://github.com/krateoplatformops/eventsse/), to receive the sse notifications for available events (default value is already set, but if you modify the [eventsse](http://github.com/krateoplatformops/eventsse/) service, the HELM chart needs to be updated).
-
-Additionally, you will need to have a running instance of the [bff](http://github.com/krateoplatformops/bff) and compile the `URL_PLURALS` variable in the HELM chart values.
