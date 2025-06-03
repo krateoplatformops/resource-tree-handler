@@ -30,7 +30,6 @@ type SSE struct {
 	connection    *sse.Connection
 	unsubscribe   map[string]sse.EventCallbackRemover
 	unsubscribeMu sync.Mutex
-	logger        *zerolog.Logger
 	Cache         *cachehelper.ThreadSafeCache
 
 	// Connection management
@@ -46,7 +45,6 @@ const (
 )
 
 func (r *SSE) Spinup(endpoint string) {
-	logger_instance := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).With().Str("Client", "SSE").Logger()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		log.Error().Err(err).Msg("error while initializing request with http package")
@@ -57,26 +55,27 @@ func (r *SSE) Spinup(endpoint string) {
 	go r.maintainConnection()
 
 	r.unsubscribe = make(map[string]sse.EventCallbackRemover)
-	r.logger = &logger_instance
+	logger_instance := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).With().Str("Client", "SSE Spinup").Logger()
 	logger_instance.Debug().Msg("End of spinup")
 }
 
 func (r *SSE) maintainConnection() {
+	logger_instance := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).With().Str("Client", "SSE Connection Checker").Logger()
 	retryAttempt := 0
 	for {
-		r.logger.Debug().Msg("Connection checker loop")
+		logger_instance.Debug().Msg("Connection checker loop")
 		r.setConnected(true)
 		err := r.connection.Connect()
 		if err != nil {
 			r.setConnected(false)
 			if errors.Is(err, context.Canceled) {
-				r.logger.Error().Msg("Connection context canceled, stopping reconnection attempts")
+				logger_instance.Error().Msg("Connection context canceled, stopping reconnection attempts")
 				return
 			}
 
 			retryAttempt++
 			if retryAttempt > maxRetryAttempts {
-				r.logger.Error().Err(fmt.Errorf("maximum number of retry attempts (%d) reached, stopping reconnection attempts", maxRetryAttempts)).Msg("the resource tree will NOT be updated with managed resources' events, use the /refresh endpoint manually to update the resource tree or restart the service")
+				logger_instance.Error().Err(fmt.Errorf("maximum number of retry attempts (%d) reached, stopping reconnection attempts", maxRetryAttempts)).Msg("the resource tree will NOT be updated with managed resources' events, use the /refresh endpoint manually to update the resource tree or restart the service")
 				return
 			}
 
@@ -86,7 +85,7 @@ func (r *SSE) maintainConnection() {
 				float64(maxRetryDelay),
 			))
 
-			r.logger.Warn().Err(err).Msgf("Connection attempt %d failed. Retrying in %v...", retryAttempt, delay)
+			logger_instance.Warn().Err(err).Msgf("Connection attempt %d failed. Retrying in %v...", retryAttempt, delay)
 
 			select {
 			case <-r.ctx.Done():
@@ -99,11 +98,11 @@ func (r *SSE) maintainConnection() {
 		// Connection successful, reset retry counter
 		retryAttempt = 0
 		r.setConnected(true)
-		r.logger.Info().Msg("Successfully connected to SSE server")
+		logger_instance.Info().Msg("Successfully connected to SSE server")
 
 		// Wait for context cancellation before attempting to reconnect
 		<-r.ctx.Done()
-		r.logger.Info().Msg("Connection context done, attempting to reconnect...")
+		logger_instance.Info().Msg("Connection context done, attempting to reconnect...")
 	}
 }
 
@@ -111,7 +110,7 @@ func (r *SSE) SubscribeTo(compositionId string) {
 	log.Info().Msgf("Subscribing to notificaitons for compositionId %s", compositionId)
 
 	callback := func(event sse.Event) {
-		sseEventHandlerFunction(event, r.Config, r.Cache, r.logger)
+		sseEventHandlerFunction(event, r.Config, r.Cache)
 	}
 
 	if !r.IsConnected() {
@@ -134,7 +133,8 @@ func (r *SSE) UnsubscribeFrom(compositionId string) {
 	r.unsubscribeMu.Unlock()
 }
 
-func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *cachehelper.ThreadSafeCache, logger *zerolog.Logger) {
+func sseEventHandlerFunction(eventObj sse.Event, config *rest.Config, cacheObj *cachehelper.ThreadSafeCache) {
+	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).With().Str("Client", "SSE Connection Checker").Logger()
 	logger.Info().Msgf("Function callback for event %s", eventObj.LastEventID)
 
 	var event Event
