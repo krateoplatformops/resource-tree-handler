@@ -90,6 +90,9 @@ func TestMain(m *testing.M) {
 }
 
 func TestResourceTreeHandler(t *testing.T) {
+	mgrCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	createSingle := features.New("Create single").
 		WithLabel("type", "Resource tree").
 		Setup(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
@@ -99,7 +102,7 @@ func TestResourceTreeHandler(t *testing.T) {
 			}
 
 			// Start resource tree handler
-			go startTestManager(c.Client().RESTConfig())
+			go startTestManager(mgrCtx, c.Client().RESTConfig())
 
 			ctx = context.WithValue(ctx, contextKey("client"), r)
 
@@ -201,7 +204,7 @@ func TestResourceTreeHandler(t *testing.T) {
 }
 
 // startTestManager starts the controller manager with the given config
-func startTestManager(config *rest.Config) error {
+func startTestManager(ctx context.Context, config *rest.Config) error {
 	configuration, err := configuration.ParseConfig()
 	if err != nil {
 		configuration.Default()
@@ -242,7 +245,7 @@ func startTestManager(config *rest.Config) error {
 		Cache:          cache,
 		SSE:            sse,
 	}
-	w.Spinup() // blocks main thread
+	w.Spinup(ctx)
 	return nil
 }
 

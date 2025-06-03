@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
@@ -313,7 +312,7 @@ func (r *Webservice) initWorkerPool() {
 	log.Info().Msgf("Started worker pool with %d workers", maxConcurrentJobs)
 }
 
-func (r *Webservice) Spinup() {
+func (r *Webservice) Spinup(ctx context.Context) {
 	r.compositionStatus = make(map[string]string)
 
 	// Initialize the worker pool
@@ -356,8 +355,6 @@ func (r *Webservice) Spinup() {
 	<-quit
 	log.Logger.Debug().Msg("Shutdown Server ...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Logger.Warn().Err(err).Msg("Server Shutdown")
 	}
