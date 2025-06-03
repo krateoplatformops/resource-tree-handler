@@ -58,5 +58,5 @@ func main() {
 		Cache:          cache,
 		SSE:            sse,
 	}
-	w.Spinup() // blocks main thread
+	w.Spinup()
 }
