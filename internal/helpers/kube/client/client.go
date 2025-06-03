@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -71,7 +72,13 @@ func InferGroupResource(a, k string) schema.GroupResource {
 	})
 	if err != nil {
 		log.Error().Err(err).Msgf("could not obtain plural for %s %s %s", gvk.Group, gvk.Kind, gvk.Version)
-		return schema.GroupResource{}
+		// This should never really happen, however, it allows a graceful error on a non-existent resource rather than a panic on nil-pointer
+		lowEffortPlural := strings.ToLower(gvk.Kind) + "s"
+		log.Warn().Msgf("using `low effort` plural: %s", lowEffortPlural)
+		return schema.GroupResource{
+			Resource: lowEffortPlural,
+			Group:    gv.Group,
+		}
 	}
 
 	return schema.GroupResource{

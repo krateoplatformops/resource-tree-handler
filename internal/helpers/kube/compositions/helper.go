@@ -138,8 +138,18 @@ func GetCompositionById(compositionId string, config *rest.Config) (*unstructure
 					if conditions[0].(map[string]interface{})["reason"].(string) == "Creating" {
 						return nil, nil, fmt.Errorf("composition is creating")
 					}
+					installedVersionString, ok := item.GetLabels()["krateo.io/composition-version"]
+					if !ok {
+						return nil, nil, fmt.Errorf("could not get label 'krateo.io/composition-version' of composition uid %s", compositionId)
+					}
+
+					gv, err := schema.ParseGroupVersion(item.GetAPIVersion())
+					if err != nil {
+						return nil, nil, fmt.Errorf("could not parse group version for composition uid %s", compositionId)
+					}
+					gv.Version = installedVersionString
 					ref := &types.Reference{
-						ApiVersion: item.GetAPIVersion(),
+						ApiVersion: gv.String(),
 						Kind:       item.GetKind(),
 						Resource:   kubehelper.InferGroupResource(item.GetAPIVersion(), item.GetKind()).Resource,
 						Name:       item.GetName(),

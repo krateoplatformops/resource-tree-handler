@@ -1,0 +1,13 @@
+apiVersion: composition.krateo.io/v1
+kind: ApplicationGroup
+metadata:
+  labels:
+    krateo.io/composition-version: v1-2-0-rc-1
+    krateo.io/release-name: test-2905
+  name: test-2905
+  namespace: resource-tree-handler-test
+spec:
+  applicationGroupDisplayName: test-2905
+  applicationGroupName: test-2905
+  permissions:
+  - PBI_ACL_PIPELINE_ADMIN

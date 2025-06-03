@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	cachehelper "resource-tree-handler/internal/cache"
 	parser "resource-tree-handler/internal/helpers/configuration"
@@ -58,5 +59,6 @@ func main() {
 		Cache:          cache,
 		SSE:            sse,
 	}
-	w.Spinup() // blocks main thread
+
+	w.Spinup(context.Background())
 }

@@ -32,7 +32,7 @@ func GetCompositionReference(dynClient *dynamic.DynamicClient, composition types
 
 	gv, err := schema.ParseGroupVersion(composition.ApiVersion)
 	if err != nil {
-		return &types.CompositionReference{}, &unstructured.Unstructured{}, fmt.Errorf("could not parse group version for composition while retrieving filters, continuing without filters: %v", err)
+		return &types.CompositionReference{}, &unstructured.Unstructured{}, fmt.Errorf("could not parse group version for composition: %v", err)
 	}
 
 	labels := fmt.Sprintf(
@@ -55,11 +55,11 @@ func GetCompositionReference(dynClient *dynamic.DynamicClient, composition types
 
 	unstructuredCompositionReference, err := dynClient.Resource(gvr).List(context.TODO(), listOptions)
 	if err != nil {
-		return &types.CompositionReference{}, &unstructured.Unstructured{}, fmt.Errorf("could not get composition reference for labels %s, continuing without filters: %v", labels, err)
+		return &types.CompositionReference{}, &unstructured.Unstructured{}, fmt.Errorf("could not get composition reference for labels %s: %v", labels, err)
 	}
 
 	if len(unstructuredCompositionReference.Items) == 0 {
-		return &types.CompositionReference{}, &unstructured.Unstructured{}, fmt.Errorf("no composition reference found for labels %s, continuing without filters", labels)
+		return &types.CompositionReference{}, &unstructured.Unstructured{}, fmt.Errorf("no composition reference found for labels %s", labels)
 	}
 
 	// Get the first item since we expect only one
@@ -86,7 +86,7 @@ func GetFilters(config *rest.Config, composition types.Reference) []types.Exclud
 
 	compositionRef, _, err := GetCompositionReference(dynClient, composition)
 	if err != nil {
-		log.Error().Err(err).Msgf("error retrieving composition reference")
+		log.Error().Err(err).Msgf("error while retrieving filters, could not retrieve composition reference, continuing without filters")
 		return []types.Exclude{}
 	}
 

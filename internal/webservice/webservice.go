@@ -1,12 +1,16 @@
 package webservice
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
@@ -308,7 +312,7 @@ func (r *Webservice) initWorkerPool() {
 	log.Info().Msgf("Started worker pool with %d workers", maxConcurrentJobs)
 }
 
-func (r *Webservice) Spinup() {
+func (r *Webservice) Spinup(ctx context.Context) {
 	r.compositionStatus = make(map[string]string)
 
 	// Initialize the worker pool
@@ -330,5 +334,33 @@ func (r *Webservice) Spinup() {
 	c.POST(refreshEndpoint, r.handleRefresh)
 	c.POST(allEventsEndpoint, r.handleAllEvents)
 
-	c.Run(fmt.Sprintf(":%d", r.WebservicePort))
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", r.WebservicePort),
+		Handler: c.Handler(),
+	}
+	go func() {
+		// service connections
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Logger.Error().Err(err).Msgf("listen on %d", r.WebservicePort)
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server with
+	// a timeout of 5 seconds.
+	quit := make(chan os.Signal, 1)
+	// kill (no params) by default sends syscall.SIGTERM
+	// kill -2 is syscall.SIGINT
+	// kill -9 is syscall.SIGKILL but can't be caught, so don't need add it
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Logger.Debug().Msg("Shutdown Server ...")
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Logger.Warn().Err(err).Msg("Server Shutdown")
+	}
+	// catching ctx.Done(). timeout of 5 seconds.
+	<-ctx.Done()
+	log.Logger.Debug().Msg("timeout of 5 seconds.")
+	log.Logger.Debug().Msg("Server exiting")
+
 }
