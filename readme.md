@@ -13,6 +13,12 @@ This service manages the resource trees for all the compositions installed.
 
 This service monitors all Kubernetes events that it receives on the `/events` endpoint to find create/deleted compositions (the events are obtained through an [eventrouter](http://github.com/krateoplatformops/eventrouter/) registration). When a composition is created, it creates a resource tree by fetching all managed resources' statuses. The resource tree is then published on `/compositions/<composition_id>`. If a delete event happens, then the resource tree is deleted from the cache and will not be served on the `/compositions/<composition_id>` endpoint anymore. The `/refresh/<composition_id>` endpoint can refreshes a resource tree for a given composition_id and the `/list` endpoint returns the list of all composition_ids that have a resource tree available. Additionally, the resource-tree-handler awaits sse events from the [eventsse](http://github.com/krateoplatformops/eventsse/) service, updating each object in the resource tree individually, when it has an event that notifies an update. Finally, it updates the status of the CR CompositionReference (i.e., the one that contains the filters) with the overall status of the composition, also setting the CompositionReference as the root of the resource tree.
 
+> [!NOTE]  
+> The `CompositionReference` is mandatory, if it is not present, the resource-tree-handler will not build the resource tree. Filters are optional.
+
+> [!NOTE]  
+> Every resource tree is refreshed completely every 8 hours.
+
 ## Architecture
 
 ![Resource Tree Handler](_diagrams/architecture.png)

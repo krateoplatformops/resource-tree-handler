@@ -86,10 +86,10 @@ func IsCompositionReady(resourceTree *types.ResourceTree) (bool, string) {
 		"", "ready", "complete", "healthy", "active", "able",
 	}
 	for _, status := range resourceTree.Resources.Status {
-		logging += fmt.Sprintf("resource %s health type %s value %s\n", status.Kind, status.Health.Type, status.Health.Status)
 		if status.Kind == "CompositionReference" {
 			continue
 		}
+		logging += fmt.Sprintf("resource %s health type %s value %s\n", status.Kind, status.Health.Type, status.Health.Status)
 		if has(positives, status.Health.Type) {
 			if strings.ToLower(status.Health.Status) != "true" && status.Health.Type != "" {
 				log.Debug().Msg(logging)

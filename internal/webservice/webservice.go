@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
@@ -197,8 +198,9 @@ func (r *Webservice) handleList(c *gin.Context) {
 
 func (r *Webservice) handleRequest(c *gin.Context) {
 	compositionId := c.Param("compositionId")
-	resourceTreeStatusObj, ok := r.Cache.GetJSONFromCache(compositionId)
-	if !ok {
+	resourceTreeStatusObj, okJSON := r.Cache.GetJSONFromCache(compositionId)
+
+	if !okJSON {
 		log.Warn().Msgf("could not find resource tree for CompositionId %s", compositionId)
 		compositionUnstructured, compositionReferece, err := compositionhelper.GetCompositionById(compositionId, r.Config)
 		if err != nil {
@@ -208,6 +210,7 @@ func (r *Webservice) handleRequest(c *gin.Context) {
 		}
 
 		if !r.continueOperationsWithComposition(compositionId) {
+			log.Warn().Msgf("composition id %s is busy or queued", compositionId)
 			c.String(http.StatusTooManyRequests, "composition id %s is busy or queued", compositionId)
 			return
 		}
@@ -240,7 +243,49 @@ func (r *Webservice) handleRequest(c *gin.Context) {
 	}
 
 	// Resource tree exists in cache, return it
+	log.Info().Msgf("Resouce tree for composition id %s ready", compositionId)
 	c.JSON(http.StatusOK, resourceTreeStatusObj)
+
+	resourceTreeUpdate, okData := r.Cache.GetResourceTreeFromCache(compositionId)
+	if !okData {
+		log.Error().Msgf("could not obtain resource tree data structure, this should not happen")
+		return
+	}
+
+	if time.Since(resourceTreeUpdate.LastUpdate) > time.Duration(8*time.Hour) {
+		log.Warn().Msgf("Updating resource tree for CompositionId %s, current resource tree may not be up to date if controllers do not report events...", compositionId)
+
+		compositionUnstructured, compositionReferece, err := compositionhelper.GetCompositionById(compositionId, r.Config)
+		if err != nil {
+			log.Error().Err(err).Msgf("could not obtain composition object with composition id %s", compositionId)
+			return
+		}
+
+		if !r.continueOperationsWithComposition(compositionId) {
+			log.Warn().Msgf("composition id %s is busy or queued", compositionId)
+			return
+		}
+
+		// Set status to queued
+		r.setContinueOperationsWithComposition(compositionId, queuedString)
+
+		log.Info().Msgf("Queuing CREATE job from UPDATE request for composition id %s: ", compositionId)
+
+		// Create the job and submit it to the queue asynchronously
+		job := CreateJobRequest{
+			CompositionUnstructured: compositionUnstructured,
+			CompositionReference:    *compositionReferece,
+			CompositionID:           compositionId,
+		}
+
+		// Submit job to queue after responding to client
+		go func() {
+			r.jobQueue <- job
+		}()
+
+		log.Info().Msgf("Job UPDATE for composition %s has been queued", compositionId)
+		return
+	}
 }
 
 func (r *Webservice) continueOperationsWithComposition(compositionId string) bool {
@@ -260,16 +305,6 @@ func (r *Webservice) setContinueOperationsWithComposition(compositionId string, 
 	r.compositionStatusMu.Lock()
 	defer r.compositionStatusMu.Unlock()
 	r.compositionStatus[compositionId] = value
-}
-
-func (r *Webservice) getCompositionStatus(compositionId string) string {
-	r.compositionStatusMu.Lock()
-	defer r.compositionStatusMu.Unlock()
-	val, ok := r.compositionStatus[compositionId]
-	if !ok {
-		return freeString
-	}
-	return val
 }
 
 // startWorker starts a worker that processes jobs from the queue

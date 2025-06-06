@@ -19,6 +19,8 @@ import (
 const (
 	compositionGroup     = "krateo.io/composition-group"
 	compositionVersion   = "krateo.io/composition-installed-version"
+	compositionResource  = "krateo.io/composition-resource"
+	compositionKind      = "krateo.io/composition-kind"
 	compositionName      = "krateo.io/composition-name"
 	compositionNamespace = "krateo.io/composition-namespace"
 )
@@ -35,12 +37,20 @@ func GetCompositionReference(dynClient *dynamic.DynamicClient, composition types
 		return &types.CompositionReference{}, &unstructured.Unstructured{}, fmt.Errorf("could not parse group version for composition: %v", err)
 	}
 
+	if composition.Resource == "" {
+		composition.Resource = kubehelper.InferGroupResource(composition.ApiVersion, composition.Kind).Resource
+	}
+
 	labels := fmt.Sprintf(
-		"%s=%s,%s=%s,%s=%s,%s=%s",
+		"%s=%s,%s=%s,%s=%s,%s=%s,%s=%s,%s=%s",
 		compositionGroup,
 		gv.Group,
 		compositionVersion,
 		gv.Version,
+		compositionKind,
+		composition.Kind,
+		compositionResource,
+		composition.Resource,
 		compositionName,
 		composition.Name,
 		compositionNamespace,
