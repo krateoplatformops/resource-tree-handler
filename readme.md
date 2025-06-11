@@ -64,7 +64,7 @@ To filter objects from the resource tree, you should use the CompositionReferece
 You can put a set of filters to exclude some resources from the resource tree. Each of `apiVersion`, `resource`, and `name` is evaluated independetly, and all must be true to filter a given resource. A field of the filter is true if the following criterias are met:
  - the field is missing or empty;
  - the field perfectly matches the resource;
- - the field is a regex and there is a match in the resource.
+ - the field is a regex and there is a **full** match in the resource.
 
 ```yaml
 apiVersion: resourcetrees.krateo.io/v1
