@@ -123,6 +123,7 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 	if err != nil {
 		log.Error().Err(err).Msgf("could not get composition with id %s", compositionId)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error while handling %s event: %s", event.Reason, err)})
+		r.setContinueOperationsWithComposition(compositionId, freeString)
 		return
 	}
 
@@ -153,6 +154,10 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 	} else {
 		// If we got here, nothing needed to be done
 		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("No action needed for composition %s", compositionId)})
+		// Free the resource if there is nothing to do
+		if !r.continueOperationsWithComposition(compositionId) {
+			r.setContinueOperationsWithComposition(compositionId, freeString)
+		}
 	}
 }
 
@@ -326,7 +331,7 @@ func (r *Webservice) startWorker(workerId int) {
 		if err != nil {
 			log.Error().Err(err).Msgf("Worker %d failed to create resource tree for composition %s", workerId, compositionId)
 		} else {
-			log.Debug().Msgf("Worker %d successfully created resource tree for composition %s", workerId, compositionId)
+			log.Info().Msgf("Worker %d successfully created resource tree for composition %s", workerId, compositionId)
 		}
 
 		// Mark as free after processing is done
