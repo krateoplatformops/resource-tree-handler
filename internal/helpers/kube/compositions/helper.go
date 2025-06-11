@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	types "resource-tree-handler/apis"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,6 +19,9 @@ import (
 )
 
 func isFullMatch(pattern, str string) (bool, error) {
+	if !strings.HasSuffix(pattern, "$") {
+		pattern = pattern + "$"
+	}
 	regex, err := regexp.Compile(pattern)
 	if err != nil {
 		return false, err
