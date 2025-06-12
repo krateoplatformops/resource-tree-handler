@@ -3,6 +3,7 @@ package compositions
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -135,6 +136,7 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 		if conditions, ok := unstructuredStatus["conditions"].([]interface{}); ok && len(conditions) > 0 {
 			useOnlyReady := false
 			readyIndex := -1
+			// To represent the object status, use first the Type Ready
 			for i := range conditions {
 				if conditions[i].(map[string]interface{})["type"] == "Ready" {
 					useOnlyReady = true
@@ -155,18 +157,50 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 				if value, ok := conditions[readyIndex].(map[string]interface{})["message"]; ok {
 					healths.Message = value.(string)
 				}
+				// If the Type Ready is not present, search all conditions
 			} else {
-				if value, ok := conditions[0].(map[string]interface{})["status"]; ok {
-					healths.Status = value.(string)
+				positives := []string{"", "ready", "complete", "healthy", "active", "able"}
+				var health types.Health
+				found := false
+				for _, condition := range conditions {
+					if value, ok := condition.(map[string]interface{})["status"]; ok {
+						health.Status = value.(string)
+					}
+					if value, ok := condition.(map[string]interface{})["type"]; ok {
+						health.Type = value.(string)
+					}
+					if value, ok := condition.(map[string]interface{})["reason"]; ok {
+						health.Reason = value.(string)
+					}
+					if value, ok := condition.(map[string]interface{})["message"]; ok {
+						health.Message = value.(string)
+					}
+					// If one of the conditions is not true, use that one to represent the object
+					if has(positives, healths.Type) {
+						if strings.ToLower(healths.Status) != "true" && healths.Type != "" {
+							healths.Status = health.Status
+							healths.Type = health.Type
+							healths.Reason = health.Reason
+							healths.Message = health.Message
+							found = true
+							break
+						}
+					}
 				}
-				if value, ok := conditions[0].(map[string]interface{})["type"]; ok {
-					healths.Type = value.(string)
-				}
-				if value, ok := conditions[0].(map[string]interface{})["reason"]; ok {
-					healths.Reason = value.(string)
-				}
-				if value, ok := conditions[0].(map[string]interface{})["message"]; ok {
-					healths.Message = value.(string)
+				// If all conditions are positive and true, pick the first one (it does not matter which we pick)
+				if !found {
+					if value, ok := conditions[0].(map[string]interface{})["status"]; ok {
+						healths.Status = value.(string)
+					}
+					if value, ok := conditions[0].(map[string]interface{})["type"]; ok {
+						healths.Type = value.(string)
+					}
+					if value, ok := conditions[0].(map[string]interface{})["reason"]; ok {
+						healths.Reason = value.(string)
+					}
+					if value, ok := conditions[0].(map[string]interface{})["message"]; ok {
+						healths.Message = value.(string)
+					}
 				}
 			}
 		}
