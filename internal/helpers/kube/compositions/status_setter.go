@@ -89,14 +89,12 @@ func IsCompositionReady(resourceTree *types.ResourceTree) (bool, string) {
 		if status.Kind == "CompositionReference" {
 			continue
 		}
-		for _, health := range *status.Health {
-			logging += fmt.Sprintf("resource %s health type %s value %s\n", status.Kind, health.Type, health.Status)
-			if has(positives, health.Type) {
-				if strings.ToLower(health.Status) != "true" && health.Type != "" {
-					log.Debug().Msg(logging)
-					log.Warn().Msgf("Object not positive >> Kind: %s - Name: %s - Namespace: %s - Message: %s", status.Kind, status.Name, status.Namespace, health.Message)
-					return false, fmt.Sprintf("Kind: %s - Name: %s - Namespace: %s - Message: %s", status.Kind, status.Name, status.Namespace, health.Message)
-				}
+		logging += fmt.Sprintf("resource %s health type %s value %s\n", status.Kind, status.Health.Type, status.Health.Status)
+		if has(positives, status.Health.Type) {
+			if strings.ToLower(status.Health.Status) != "true" && status.Health.Type != "" {
+				log.Debug().Msg(logging)
+				log.Warn().Msgf("Object not positive >> Kind: %s - Name: %s - Namespace: %s - Message: %s", status.Kind, status.Name, status.Namespace, status.Health.Message)
+				return false, fmt.Sprintf("Kind: %s - Name: %s - Namespace: %s - Message: %s", status.Kind, status.Name, status.Namespace, status.Health.Message)
 			}
 		}
 	}

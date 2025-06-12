@@ -128,7 +128,7 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 
 	}
 
-	healths := []types.Health{}
+	var healths types.Health
 
 	// Extract status if available
 	if unstructuredStatus, found, _ := unstructured.NestedMap(unstructuredRes.Object, "status"); found {
@@ -143,36 +143,30 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 				}
 			}
 			if useOnlyReady {
-				health := types.Health{}
 				if value, ok := conditions[readyIndex].(map[string]interface{})["status"]; ok {
-					health.Status = value.(string)
+					healths.Status = value.(string)
 				}
 				if value, ok := conditions[readyIndex].(map[string]interface{})["type"]; ok {
-					health.Type = value.(string)
+					healths.Type = value.(string)
 				}
 				if value, ok := conditions[readyIndex].(map[string]interface{})["reason"]; ok {
-					health.Reason = value.(string)
+					healths.Reason = value.(string)
 				}
 				if value, ok := conditions[readyIndex].(map[string]interface{})["message"]; ok {
-					health.Message = value.(string)
+					healths.Message = value.(string)
 				}
-				healths = append(healths, health)
 			} else {
-				for _, condition := range conditions {
-					health := types.Health{}
-					if value, ok := condition.(map[string]interface{})["status"]; ok {
-						health.Status = value.(string)
-					}
-					if value, ok := condition.(map[string]interface{})["type"]; ok {
-						health.Type = value.(string)
-					}
-					if value, ok := condition.(map[string]interface{})["reason"]; ok {
-						health.Reason = value.(string)
-					}
-					if value, ok := condition.(map[string]interface{})["message"]; ok {
-						health.Message = value.(string)
-					}
-					healths = append(healths, health)
+				if value, ok := conditions[0].(map[string]interface{})["status"]; ok {
+					healths.Status = value.(string)
+				}
+				if value, ok := conditions[0].(map[string]interface{})["type"]; ok {
+					healths.Type = value.(string)
+				}
+				if value, ok := conditions[0].(map[string]interface{})["reason"]; ok {
+					healths.Reason = value.(string)
+				}
+				if value, ok := conditions[0].(map[string]interface{})["message"]; ok {
+					healths.Message = value.(string)
 				}
 			}
 		}

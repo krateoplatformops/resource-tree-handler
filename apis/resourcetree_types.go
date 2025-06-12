@@ -47,7 +47,7 @@ type ResourceNodeStatus struct {
 	ParentRefs        []*ResourceNodeStatus `json:"parentRefs,omitempty"`
 	UID               *string               `json:"uid,omitempty"`
 	ResourceVersion   *string               `json:"resourceVersion,omitempty"`
-	Health            *[]Health             `json:"health,omitempty"`
+	Health            *Health               `json:"health,omitempty"`
 	CreatedAt         *metav1.Time          `json:"createdAt,omitempty"`
 }
 
