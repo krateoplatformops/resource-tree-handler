@@ -128,23 +128,52 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 
 	}
 
-	var health types.Health
+	healths := []types.Health{}
 
 	// Extract status if available
 	if unstructuredStatus, found, _ := unstructured.NestedMap(unstructuredRes.Object, "status"); found {
 		if conditions, ok := unstructuredStatus["conditions"].([]interface{}); ok && len(conditions) > 0 {
-			lastCondition := conditions[len(conditions)-1].(map[string]interface{})
-			if value, ok := lastCondition["status"]; ok {
-				health.Status = value.(string)
+			useOnlyReady := false
+			readyIndex := -1
+			for i := range conditions {
+				if conditions[i].(map[string]interface{})["type"] == "Ready" {
+					useOnlyReady = true
+					readyIndex = i
+					break
+				}
 			}
-			if value, ok := lastCondition["type"]; ok {
-				health.Type = value.(string)
-			}
-			if value, ok := lastCondition["reason"]; ok {
-				health.Reason = value.(string)
-			}
-			if value, ok := lastCondition["message"]; ok {
-				health.Message = value.(string)
+			if useOnlyReady {
+				health := types.Health{}
+				if value, ok := conditions[readyIndex].(map[string]interface{})["status"]; ok {
+					health.Status = value.(string)
+				}
+				if value, ok := conditions[readyIndex].(map[string]interface{})["type"]; ok {
+					health.Type = value.(string)
+				}
+				if value, ok := conditions[readyIndex].(map[string]interface{})["reason"]; ok {
+					health.Reason = value.(string)
+				}
+				if value, ok := conditions[readyIndex].(map[string]interface{})["message"]; ok {
+					health.Message = value.(string)
+				}
+				healths = append(healths, health)
+			} else {
+				for _, condition := range conditions {
+					health := types.Health{}
+					if value, ok := condition.(map[string]interface{})["status"]; ok {
+						health.Status = value.(string)
+					}
+					if value, ok := condition.(map[string]interface{})["type"]; ok {
+						health.Type = value.(string)
+					}
+					if value, ok := condition.(map[string]interface{})["reason"]; ok {
+						health.Reason = value.(string)
+					}
+					if value, ok := condition.(map[string]interface{})["message"]; ok {
+						health.Message = value.(string)
+					}
+					healths = append(healths, health)
+				}
 			}
 		}
 	}
@@ -171,7 +200,7 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 	resourceNodeJsonStatus.Version = unstructuredRes.GetAPIVersion()
 	resourceNodeJsonStatus.Name = reference.Name
 	resourceNodeJsonStatus.Namespace = reference.Namespace
-	resourceNodeJsonStatus.Health = &health
+	resourceNodeJsonStatus.Health = &healths
 	uidString := string(unstructuredRes.GetUID())
 	resourceNodeJsonStatus.UID = &uidString
 	resourceVersionString := unstructuredRes.GetResourceVersion()
