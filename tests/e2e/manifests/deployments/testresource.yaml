@@ -1,0 +1,7 @@
+apiVersion: resourcetrees.krateo.io/v1
+kind: TestResource
+metadata:
+  name: test-2905
+  namespace: resource-tree-handler-test
+spec:
+  test: test
