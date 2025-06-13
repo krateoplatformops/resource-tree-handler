@@ -3,7 +3,7 @@ package compositions
 import (
 	"context"
 	"fmt"
-	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -157,50 +157,35 @@ func GetObjectStatus(dynClient *dynamic.DynamicClient, reference types.Reference
 				if value, ok := conditions[readyIndex].(map[string]interface{})["message"]; ok {
 					healths.Message = value.(string)
 				}
-				// If the Type Ready is not present, search all conditions
+				// If the Type Ready is not present, use the most recent condition
 			} else {
-				positives := []string{"", "ready", "complete", "healthy", "active", "able"}
-				var health types.Health
-				found := false
-				for _, condition := range conditions {
-					if value, ok := condition.(map[string]interface{})["status"]; ok {
-						health.Status = value.(string)
-					}
-					if value, ok := condition.(map[string]interface{})["type"]; ok {
-						health.Type = value.(string)
-					}
-					if value, ok := condition.(map[string]interface{})["reason"]; ok {
-						health.Reason = value.(string)
-					}
-					if value, ok := condition.(map[string]interface{})["message"]; ok {
-						health.Message = value.(string)
-					}
-					// If one of the conditions is not true, use that one to represent the object
-					if has(positives, healths.Type) {
-						if strings.ToLower(healths.Status) != "true" && healths.Type != "" {
-							healths.Status = health.Status
-							healths.Type = health.Type
-							healths.Reason = health.Reason
-							healths.Message = health.Message
-							found = true
-							break
+				latestIndex := -1
+				latest := 999999 * time.Hour
+				for i, condition := range conditions {
+					if conditionTimestamp, err := time.Parse("2006-01-02T15:04:05Z", condition.(map[string]interface{})["lastTransitionTime"].(string)); err == nil {
+						if time.Since(conditionTimestamp) < latest {
+							latestIndex = i
+							latest = time.Since(conditionTimestamp)
 						}
+					} else {
+						log.Warn().Err(err).Msgf("could not parse condition with layout 2006-01-02T15:04:05Z lastTransitionTime: %s", condition.(map[string]interface{})["lastTransitionTime"].(string))
 					}
 				}
-				// If all conditions are positive and true, pick the first one (it does not matter which we pick)
-				if !found {
-					if value, ok := conditions[0].(map[string]interface{})["status"]; ok {
-						healths.Status = value.(string)
-					}
-					if value, ok := conditions[0].(map[string]interface{})["type"]; ok {
-						healths.Type = value.(string)
-					}
-					if value, ok := conditions[0].(map[string]interface{})["reason"]; ok {
-						healths.Reason = value.(string)
-					}
-					if value, ok := conditions[0].(map[string]interface{})["message"]; ok {
-						healths.Message = value.(string)
-					}
+				if latestIndex == -1 {
+					log.Warn().Msg("could not find latest condition, using conidition in first position")
+					latestIndex = 0
+				}
+				if value, ok := conditions[latestIndex].(map[string]interface{})["status"]; ok {
+					healths.Status = value.(string)
+				}
+				if value, ok := conditions[latestIndex].(map[string]interface{})["type"]; ok {
+					healths.Type = value.(string)
+				}
+				if value, ok := conditions[latestIndex].(map[string]interface{})["reason"]; ok {
+					healths.Reason = value.(string)
+				}
+				if value, ok := conditions[latestIndex].(map[string]interface{})["message"]; ok {
+					healths.Message = value.(string)
 				}
 			}
 		}
