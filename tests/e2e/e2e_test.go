@@ -130,6 +130,7 @@ func TestResourceTreeHandler(t *testing.T) {
 		Assess("Value", func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 			portNumber := 8085 // default for resource-tree-handler
 
+			// Set "composition" status
 			unstructuredObj, err := client.GetObj(ctx, &apis.Reference{
 				ApiVersion: testApiVersion,
 				Kind:       testKind,
@@ -149,6 +150,13 @@ func TestResourceTreeHandler(t *testing.T) {
 					"status":             "True",
 					"type":               "Ready",
 				},
+				map[string]interface{}{
+					"lastTransitionTime": "2025-06-12T14:43:36Z",
+					"message":            "observe failed",
+					"reason":             "ReconcileError",
+					"status":             "False",
+					"type":               "Synced",
+				},
 			}, "status", "conditions")
 
 			unstructured.SetNestedSlice(unstructuredObj.Object, []interface{}{
@@ -158,6 +166,12 @@ func TestResourceTreeHandler(t *testing.T) {
 					"namespace":  testNamespace,
 					"resource":   "compositionreferences",
 				},
+				map[string]interface{}{
+					"apiVersion": "resourcetrees.krateo.io/v1",
+					"name":       testName,
+					"namespace":  testNamespace,
+					"resource":   "testresources",
+				},
 			}, "status", "managed")
 
 			dynClient, err := client.NewDynamicClient(c.Client().RESTConfig())
@@ -166,10 +180,43 @@ func TestResourceTreeHandler(t *testing.T) {
 			}
 			updateStatus(ctx, unstructuredObj, "applicationgroups", dynClient)
 
+			// Set test resource status
+
+			unstructuredTestResourceObj, err := client.GetObj(ctx, &apis.Reference{
+				ApiVersion: "resourcetrees.krateo.io/v1",
+				Kind:       "TestResource",
+				Resource:   "testresources",
+				Name:       testName,
+				Namespace:  testNamespace,
+			}, c.Client().RESTConfig())
+			if err != nil {
+				t.Fatal("could not get TestResource CR")
+			}
+
+			unstructured.SetNestedSlice(unstructuredTestResourceObj.Object, []interface{}{
+				map[string]interface{}{
+					"lastTransitionTime": "2025-05-30T14:34:04Z",
+					"message":            "values updated.",
+					"reason":             "Available",
+					"status":             "True",
+					"type":               "NotReady",
+				},
+				map[string]interface{}{
+					"lastTransitionTime": "2025-04-12T14:43:36Z",
+					"message":            "observe failed",
+					"reason":             "ReconcileError",
+					"status":             "False",
+					"type":               "Synced",
+				},
+			}, "status", "conditions")
+
+			updateStatus(ctx, unstructuredTestResourceObj, "testresources", dynClient)
+
 			log.Debug().Msgf("curl -s %s:%d/compositions/%s", "localhost", portNumber, unstructuredObj.GetUID())
 
 			predictedOutput1 := `[{"version":"resourcetrees.krateo.io/v1","kind":"CompositionReference","namespace":"resource-tree-handler-test","name":"test-2905","parentRefs":[{}]`
 			predictedOutput2 := `{"version":"resourcetrees.krateo.io/v1","kind":"CompositionReference","namespace":"resource-tree-handler-test","name":"test-2905",`
+			predictedOutput3 := `"health":{"status":"True","type":"NotReady","reason":"Available","message":"values updated."}`
 			resultString := `{"message":"Job for composition a2567429-b648-427d-946e-949c0d57b612 has been queued"}`
 
 			for strings.Contains(resultString, "has been queued") {
@@ -189,10 +236,13 @@ func TestResourceTreeHandler(t *testing.T) {
 
 				time.Sleep(5 * time.Second)
 			}
-			if !strings.Contains(strings.Replace(resultString, " ", "", -1), strings.Replace(predictedOutput1, " ", "", -1)) || !strings.Contains(strings.Replace(resultString, " ", "", -1), strings.Replace(predictedOutput2, " ", "", -1)) {
+			if !strings.Contains(strings.Replace(resultString, " ", "", -1), strings.Replace(predictedOutput1, " ", "", -1)) ||
+				!strings.Contains(strings.Replace(resultString, " ", "", -1), strings.Replace(predictedOutput2, " ", "", -1)) ||
+				!strings.Contains(strings.Replace(resultString, " ", "", -1), strings.Replace(predictedOutput3, " ", "", -1)) {
 				log.Error().Msg("unexpected resource tree")
 				log.Error().Msgf("expected output should contain 1: %s", predictedOutput1)
 				log.Error().Msgf("expected output should contain 2: %s", predictedOutput2)
+				log.Error().Msgf("expected output should contain 3: %s", predictedOutput3)
 				log.Error().Msgf("actual output: %s", resultString)
 				t.Fatal(fmt.Errorf("unexpected output"))
 			}
