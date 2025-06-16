@@ -58,6 +58,7 @@ This CR is automatically installed by the [HELM chart](http://github.com/krateop
 To filter objects from the resource tree, you should use the CompositionReferece Custom Resource Definition. To map the custom resource to the composition, two labels need to be added with the information of the composition:
  - `krateo.io/composition-id`
  - `krateo.io/composition-installed-version`
+
 If you place the CompositionReference in the Helm template of the Composition, the `composition-dynamic-controller` will add [these labels automatically](https://github.com/krateoplatformops/composition-dynamic-controller?tab=readme-ov-file#composition-dynamic-controller-values-injection) when installing a new Composition.
 
 You can put a set of filters to exclude some resources from the resource tree. Each of `apiVersion`, `resource`, and `name` is evaluated independetly, and all must be true to filter a given resource. A field of the filter is true if the following criterias are met:
