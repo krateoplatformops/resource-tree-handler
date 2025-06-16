@@ -128,7 +128,7 @@ func (r *Webservice) handleAllEvents(c *gin.Context) {
 	}
 
 	if event.Reason == "CompositionCreated" || event.Reason == "CompositionUpdated" || !r.Cache.IsUidInCache(string(compositionUnstructured.GetUID())) {
-		log.Info().Msgf("'%s' event for composition %s %s %s %s", event.Reason, compositionReferece.ApiVersion, compositionReferece.Resource, compositionReferece.Name, compositionReferece.Namespace)
+		log.Info().Msgf("'%s' event for composition %s %s %s %s %s", event.Reason, compositionReferece.Uid, compositionReferece.ApiVersion, compositionReferece.Resource, compositionReferece.Name, compositionReferece.Namespace)
 
 		r.SSE.SubscribeTo(string(compositionUnstructured.GetUID()))
 
@@ -176,6 +176,7 @@ func (r *Webservice) handleRefresh(c *gin.Context) {
 		log.Error().Err(err).Msg("error parsing JSON")
 		return
 	}
+	reference.Uid = compositionId
 
 	log.Info().Msgf("'CompositionCreated' event for composition %s %s %s %s", reference.ApiVersion, reference.Resource, reference.Name, reference.Namespace)
 

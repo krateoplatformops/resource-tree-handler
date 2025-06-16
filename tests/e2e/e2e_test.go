@@ -212,6 +212,24 @@ func TestResourceTreeHandler(t *testing.T) {
 
 			updateStatus(ctx, unstructuredTestResourceObj, "testresources", dynClient)
 
+			// Get UID for composition object and set the composition-id label on the composition reference (this would be done by composition-dynamic-controller, but it is not part of the test)
+			unstructuredCompositionReferenceObj, err := client.GetObj(ctx, &apis.Reference{
+				ApiVersion: "resourcetrees.krateo.io/v1",
+				Kind:       "CompositionReference",
+				Resource:   "compositionreferences",
+				Name:       testName,
+				Namespace:  testNamespace,
+			}, c.Client().RESTConfig())
+			if err != nil {
+				t.Fatal("could not get ApplicationGroup CR")
+			}
+
+			labels := unstructuredCompositionReferenceObj.GetLabels()
+			labels["krateo.io/composition-id"] = string(unstructuredObj.GetUID())
+			unstructuredCompositionReferenceObj.SetLabels(labels)
+
+			update(ctx, unstructuredCompositionReferenceObj, "compositionreferences", dynClient)
+
 			log.Debug().Msgf("curl -s %s:%d/compositions/%s", "localhost", portNumber, unstructuredObj.GetUID())
 
 			predictedOutput1 := `[{"version":"resourcetrees.krateo.io/v1","kind":"CompositionReference","namespace":"resource-tree-handler-test","name":"test-2905","parentRefs":[{}]`
@@ -307,5 +325,16 @@ func updateStatus(ctx context.Context, objToUpdate *unstructured.Unstructured, R
 		Resource: Resource,
 	}
 	_, err := dynClient.Resource(gvr).Namespace(objToUpdate.GetNamespace()).UpdateStatus(ctx, objToUpdate, metav1.UpdateOptions{})
+	return err
+}
+
+func update(ctx context.Context, objToUpdate *unstructured.Unstructured, Resource string, dynClient *dynamic.DynamicClient) error {
+	gv, _ := schema.ParseGroupVersion(objToUpdate.GetAPIVersion())
+	gvr := schema.GroupVersionResource{
+		Group:    gv.Group,
+		Version:  gv.Version,
+		Resource: Resource,
+	}
+	_, err := dynClient.Resource(gvr).Namespace(objToUpdate.GetNamespace()).Update(ctx, objToUpdate, metav1.UpdateOptions{})
 	return err
 }
