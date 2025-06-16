@@ -3,7 +3,6 @@ kind: CompositionReference
 metadata:
  labels:
    krateo.io/composition-group: composition.krateo.io
-   krateo.io/composition-id: 251eb421-2409-4756-a954-9b31530513d4
    krateo.io/composition-installed-version: v1-2-0-rc-1
    krateo.io/composition-kind: ApplicationGroup
    krateo.io/composition-name: test-2905
