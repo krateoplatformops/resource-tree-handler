@@ -15,23 +15,6 @@ import (
 	filtersHelper "resource-tree-handler/internal/helpers/kube/filters"
 )
 
-func GetUidByCompositionReference(composition *types.Reference, cacheObj *cacheHelper.ThreadSafeCache) string {
-	keys := cacheObj.ListKeysFromCache()
-	for _, compositionId := range keys {
-		resourceTree, ok := cacheObj.GetResourceTreeFromCache(compositionId)
-		if !ok {
-			return ""
-		}
-		if resourceTree.CompositionReference.ApiVersion == composition.ApiVersion &&
-			resourceTree.CompositionReference.Resource == composition.Resource &&
-			resourceTree.CompositionReference.Namespace == composition.Namespace &&
-			resourceTree.CompositionReference.Name == composition.Name {
-			return compositionId
-		}
-	}
-	return ""
-}
-
 func HandleCreate(obj *unstructured.Unstructured, composition types.Reference, cacheObj *cacheHelper.ThreadSafeCache, config *rest.Config) error {
 	dynClient, err := kubeHelper.NewDynamicClient(config)
 	if err != nil {

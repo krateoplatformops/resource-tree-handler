@@ -23,6 +23,7 @@ const (
 	compositionKind      = "krateo.io/composition-kind"
 	compositionName      = "krateo.io/composition-name"
 	compositionNamespace = "krateo.io/composition-namespace"
+	compositionId        = "krateo.io/composition-id"
 )
 
 func GetCompositionReference(dynClient *dynamic.DynamicClient, composition types.Reference) (*types.CompositionReference, *unstructured.Unstructured, error) {
@@ -42,19 +43,11 @@ func GetCompositionReference(dynClient *dynamic.DynamicClient, composition types
 	}
 
 	labels := fmt.Sprintf(
-		"%s=%s,%s=%s,%s=%s,%s=%s,%s=%s,%s=%s",
-		compositionGroup,
-		gv.Group,
+		"%s=%s,%s=%s",
+		compositionId,
+		composition.Uid,
 		compositionVersion,
 		gv.Version,
-		compositionKind,
-		composition.Kind,
-		compositionResource,
-		composition.Resource,
-		compositionName,
-		composition.Name,
-		compositionNamespace,
-		composition.Namespace,
 	)
 
 	listOptions := v1.ListOptions{

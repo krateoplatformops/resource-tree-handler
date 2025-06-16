@@ -158,6 +158,7 @@ func GetCompositionById(compositionId string, config *rest.Config) (*unstructure
 						Resource:   kubehelper.InferGroupResource(item.GetAPIVersion(), item.GetKind()).Resource,
 						Name:       item.GetName(),
 						Namespace:  item.GetNamespace(),
+						Uid:        compositionId,
 					}
 
 					return &item, ref, nil
