@@ -86,7 +86,7 @@ spec:
       resource: "widgets"
     - apiVersion: "v1"
       resource: "configmaps"
-      name: "^composition-"
+      name: "^composition-.+"
 status:
   ...
 ```
